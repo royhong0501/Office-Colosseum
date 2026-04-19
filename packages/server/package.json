@@ -3,13 +3,16 @@
   "version": "0.1.0",
   "type": "module",
   "dependencies": {
+    "@office-colosseum/shared": "*",
     "express": "^4.21.0",
-    "socket.io": "^4.8.0",
-    "@office-colosseum/shared": "*"
+    "socket.io": "^4.8.0"
   },
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "smoke": "node test/smoke.js"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
   }
 }
