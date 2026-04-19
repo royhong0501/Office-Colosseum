@@ -1,0 +1,15 @@
+{
+  "name": "@office-colosseum/server",
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "express": "^4.21.0",
+    "socket.io": "^4.8.0",
+    "@office-colosseum/shared": "*"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "smoke": "node test/smoke.js"
+  }
+}
