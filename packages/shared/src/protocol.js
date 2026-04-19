@@ -1,0 +1,14 @@
+export const MSG = {
+  JOIN: 'join',
+  LOBBY_STATE: 'lobby_state',
+  PICK: 'pick_character',
+  READY: 'ready',
+  START: 'start_match',
+  MATCH_START: 'match_start',
+  INPUT: 'input',
+  SNAPSHOT: 'snapshot',
+  MATCH_END: 'match_end',
+  PAUSED: 'paused',
+  LEAVE: 'leave',
+  ERROR: 'error',
+};
