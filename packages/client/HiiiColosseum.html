@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HiiiCalc — 試算表管理工具</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #root { height: 100%; overflow: hidden; }
+    body { font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; background: #F5F0E8; }
+
+    @keyframes floatUp {
+      0% { opacity: 1; transform: translateX(-50%) translateY(0); }
+      100% { opacity: 0; transform: translateX(-50%) translateY(-24px); }
+    }
+
+    /* Scrollbar styling */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #EDE7DB; }
+    ::-webkit-scrollbar-thumb { background: #C4B8A8; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #8B7355; }
+  </style>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" src="characters.jsx"></script>
+  <script type="text/babel" src="components.jsx"></script>
+  <script type="text/babel" src="screens_menu.jsx"></script>
+  <script type="text/babel" src="screens_battle.jsx"></script>
+
+  <script type="text/babel">
+    const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+      "theme": "dark",
+      "arenaSize": 16,
+      "aiDifficulty": "normal"
+    }/*EDITMODE-END*/;
+
+    function App() {
+      const [screen, setScreen] = React.useState('menu');
+      const [p1, setP1] = React.useState(null);
+      const [p2, setP2] = React.useState(null);
+      const [history, setHistory] = React.useState([]);
+      const [tweaks, setTweaks] = React.useState(TWEAK_DEFAULTS);
+      const [showTweaks, setShowTweaks] = React.useState(false);
+
+      // Tweaks protocol
+      React.useEffect(() => {
+        const handler = (e) => {
+          if (e.data?.type === '__activate_edit_mode') setShowTweaks(true);
+          if (e.data?.type === '__deactivate_edit_mode') setShowTweaks(false);
+        };
+        window.addEventListener('message', handler);
+        window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+        return () => window.removeEventListener('message', handler);
+      }, []);
+
+      const navigate = (target) => setScreen(target);
+      const selectChars = (c1, c2) => { setP1(c1); setP2(c2); };
+
+      const sheets = [
+        { id: 'menu', label: '🏠 首頁' },
+        { id: 'select', label: '📊 角色資料' },
+        { id: 'battle', label: '⚔ 對戰分析' },
+        { id: 'results', label: '📈 績效報表' },
+      ];
+
+      const formulaTexts = {
+        menu: '=WELCOME("HiiiColosseum","v3.2.1")',
+        select: '=QUERY(characters_db, "SELECT * ORDER BY stats DESC")',
+        battle: `=BATTLE.RUN("${p1?.name || '?'}","${p2?.name || '?'}")`,
+        results: '=PIVOT_TABLE(battle_history, "summary")',
+      };
+
+      return React.createElement('div', {
+        style: { height: '100vh', display: 'flex', flexDirection: 'column' }
+      },
+        React.createElement(ExcelMenuBar, { currentSheet: screen, onNavigate: navigate }),
+        React.createElement(ExcelToolbar, { cellRef: screen === 'battle' ? 'A1:P10' : 'A1', formulaText: formulaTexts[screen] }),
+        React.createElement('div', { style: { flex: 1, position: 'relative', overflow: 'hidden' } },
+          screen === 'menu' && React.createElement(MainMenuScreen, { onNavigate: navigate }),
+          screen === 'select' && React.createElement(CharacterSelectScreen, { onNavigate: navigate, onSelectCharacters: selectChars }),
+          screen === 'battle' && p1 && p2 && React.createElement(BattleScreen, { p1, p2, onNavigate: navigate }),
+          screen === 'battle' && (!p1 || !p2) && React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontFamily: 'Consolas, monospace', color: excelColors.textLight }
+          },
+            React.createElement('div', { style: { textAlign: 'center' } },
+              React.createElement('div', { style: { fontSize: 16, marginBottom: 8 } }, '// ERROR: 未選擇角色'),
+              React.createElement('div', { style: { fontSize: 12, cursor: 'pointer', color: excelColors.accent, textDecoration: 'underline' }, onClick: () => navigate('select') }, '→ 前往角色資料表選擇'),
+            ),
+          ),
+          screen === 'results' && React.createElement(ResultsScreen, { onNavigate: navigate, history }),
+        ),
+        React.createElement(ExcelSheetTabs, { sheets, active: screen, onSelect: navigate }),
+        React.createElement(ExcelStatusBar, { stats: `🏛 HiiiColosseum v3.2.1 — ${screen === 'battle' ? '對戰進行中...' : '就緒'}` }),
+
+        // Tweaks panel
+        showTweaks && React.createElement('div', {
+          style: {
+            position: 'fixed', bottom: 52, right: 16, width: 220, background: excelColors.cellBg,
+            border: `2px solid ${excelColors.accent}`, borderRadius: 6, padding: 16, zIndex: 1000,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.15)', fontFamily: '"Microsoft JhengHei", sans-serif', fontSize: 12,
+          }
+        },
+          React.createElement('div', { style: { fontWeight: 700, marginBottom: 12, color: excelColors.accent } }, '⚙ Tweaks'),
+          React.createElement('div', { style: { marginBottom: 8 } },
+            React.createElement('label', { style: { fontSize: 10, color: excelColors.textLight } }, '主題色調'),
+            React.createElement('select', {
+              value: tweaks.theme,
+              onChange: (e) => {
+                const next = { ...tweaks, theme: e.target.value };
+                setTweaks(next);
+                window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { theme: e.target.value } }, '*');
+              },
+              style: { width: '100%', padding: 4, marginTop: 2, border: `1px solid ${excelColors.cellBorder}`, borderRadius: 3, fontSize: 11 }
+            },
+              React.createElement('option', { value: 'warm' }, '暖色復古'),
+              React.createElement('option', { value: 'cool' }, '冷色商務'),
+              React.createElement('option', { value: 'dark' }, '深色模式'),
+            ),
+          ),
+          React.createElement('div', { style: { marginBottom: 8 } },
+            React.createElement('label', { style: { fontSize: 10, color: excelColors.textLight } }, 'AI 難度'),
+            React.createElement('select', {
+              value: tweaks.aiDifficulty,
+              onChange: (e) => {
+                const next = { ...tweaks, aiDifficulty: e.target.value };
+                setTweaks(next);
+                window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { aiDifficulty: e.target.value } }, '*');
+              },
+              style: { width: '100%', padding: 4, marginTop: 2, border: `1px solid ${excelColors.cellBorder}`, borderRadius: 3, fontSize: 11 }
+            },
+              React.createElement('option', { value: 'easy' }, '簡單'),
+              React.createElement('option', { value: 'normal' }, '普通'),
+              React.createElement('option', { value: 'hard' }, '困難'),
+            ),
+          ),
+        ),
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+  </script>
+</body>
+</html>
