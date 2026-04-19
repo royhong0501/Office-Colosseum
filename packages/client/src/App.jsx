@@ -1,13 +1,24 @@
 import { useState } from 'react';
-import { ALL_CHARACTERS } from '@office-colosseum/shared';
+import MainMenu from './screens/MainMenu.jsx';
+import Lobby from './screens/Lobby.jsx';
 
 export default function App() {
-  const [screen] = useState('menu');
-  return (
-    <div style={{ padding: 20, fontFamily: 'Microsoft JhengHei, sans-serif' }}>
-      <h1>Office Colosseum</h1>
-      <p>Screen: {screen}</p>
-      <p>Loaded {ALL_CHARACTERS.length} characters from shared package.</p>
+  const [screen, setScreen] = useState('menu');
+  const [matchStart, setMatchStart] = useState(null);
+
+  if (screen === 'menu') return <MainMenu onStart={() => setScreen('lobby')} />;
+  if (screen === 'lobby') return (
+    <Lobby
+      onMatchStart={(ms) => { setMatchStart(ms); setScreen('battle'); }}
+      onBack={() => setScreen('menu')}
+    />
+  );
+  if (screen === 'battle') return (
+    <div style={{ padding: 40 }}>
+      <h2>Battle placeholder — match started</h2>
+      <pre>{JSON.stringify(matchStart, null, 2)}</pre>
+      <button onClick={() => setScreen('menu')}>Back to menu</button>
     </div>
   );
+  return null;
 }
