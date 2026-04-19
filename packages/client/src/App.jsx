@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import MainMenu from './screens/MainMenu.jsx';
 import Lobby from './screens/Lobby.jsx';
+import NetworkedBattle from './screens/NetworkedBattle.jsx';
 
 export default function App() {
   const [screen, setScreen] = useState('menu');
   const [matchStart, setMatchStart] = useState(null);
+  const [matchEnd, setMatchEnd] = useState(null);
 
   if (screen === 'menu') return <MainMenu onStart={() => setScreen('lobby')} />;
   if (screen === 'lobby') return (
@@ -14,9 +16,15 @@ export default function App() {
     />
   );
   if (screen === 'battle') return (
-    <div style={{ padding: 40 }}>
-      <h2>Battle placeholder — match started</h2>
-      <pre>{JSON.stringify(matchStart, null, 2)}</pre>
+    <NetworkedBattle
+      initialState={matchStart}
+      onEnd={(end) => { setMatchEnd(end); setScreen('gameover'); }}
+    />
+  );
+  if (screen === 'gameover') return (
+    <div style={{ padding: 40, fontFamily: 'Consolas, monospace' }}>
+      <h2>WINNER: {matchEnd?.winnerId ?? '(draw)'}</h2>
+      <pre>{JSON.stringify(matchEnd?.summary, null, 2)}</pre>
       <button onClick={() => setScreen('menu')}>Back to menu</button>
     </div>
   );
