@@ -1,0 +1,13 @@
+{
+  "name": "office-colosseum",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "dev:server": "npm run dev --workspace @office-colosseum/server",
+    "dev:client": "npm run dev --workspace @office-colosseum/client",
+    "build": "npm run build --workspace @office-colosseum/client",
+    "start": "npm run start --workspace @office-colosseum/server",
+    "test": "npm test --workspaces --if-present"
+  }
+}
