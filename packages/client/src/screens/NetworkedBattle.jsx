@@ -14,6 +14,9 @@ export default function NetworkedBattle({ initialState, onEnd }) {
   const [effects, setEffects] = useState([]);
   const readInput = useInputCapture();
 
+  const playersRef = useRef(players);
+  playersRef.current = players;
+
   useEffect(() => {
     const onSnap = snap => {
       setPlayers(snap.players);
@@ -37,7 +40,7 @@ export default function NetworkedBattle({ initialState, onEnd }) {
         }
       }
     };
-    const onEndMsg = m => onEnd(m);
+    const onEndMsg = m => onEnd({ ...m, players: playersRef.current });
     socket.on(MSG.SNAPSHOT, onSnap);
     socket.on(MSG.MATCH_END, onEndMsg);
     const interval = setInterval(() => socket.emit(MSG.INPUT, readInput()), TICK_MS);
