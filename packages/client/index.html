@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HiiiCalc — 試算表管理工具</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html, body, #root { height:100%; overflow:hidden; }
+    body { font-family:"Microsoft JhengHei","Noto Sans TC",sans-serif; background:#F5F0E8; }
+    @keyframes floatUp { 0%{opacity:1;transform:translateX(-50%) translateY(0);} 100%{opacity:0;transform:translateX(-50%) translateY(-24px);} }
+    ::-webkit-scrollbar { width:8px; height:8px; }
+    ::-webkit-scrollbar-track { background:#EDE7DB; }
+    ::-webkit-scrollbar-thumb { background:#C4B8A8; border-radius:4px; }
+    ::-webkit-scrollbar-thumb:hover { background:#8B7355; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>
