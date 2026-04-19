@@ -1,0 +1,9 @@
+export const ARENA_COLS = 16;
+export const ARENA_ROWS = 10;
+export const MAX_PLAYERS = 8;
+export const MIN_PLAYERS = 2;
+export const TICK_RATE = 30;
+export const TICK_MS = 1000 / TICK_RATE;
+export const SKILL_COOLDOWN_MS = 5000;
+export const MOVE_COOLDOWN_MS = 150;
+export const ATTACK_RANGE = 2;
