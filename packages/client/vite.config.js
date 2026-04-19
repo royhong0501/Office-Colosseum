@@ -5,6 +5,11 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    proxy: { '/socket.io': { target: 'http://localhost:3000', ws: true } },
+    proxy: {
+      '/socket.io': {
+        target: process.env.VITE_PROXY_TARGET || 'http://localhost:3000',
+        ws: true,
+      },
+    },
   },
 });

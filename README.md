@@ -10,7 +10,34 @@ npm workspaces monorepo，三個 package：
 - `packages/server` — Node + Express + socket.io，擁有 GameState，30 Hz tick 廣播 snapshot
 - `packages/client` — Vite + React 18 + socket.io-client，訂閱 snapshot 渲染，捕捉鍵盤輸入
 
-## 快速開始
+## 使用 Docker
+
+### 開發模式
+
+```bash
+docker compose up --build
+```
+
+打開 `http://localhost:5173`。改 `packages/` 下任何原始碼會觸發 server 熱重啟 / client HMR。
+
+### 正式模式（LAN host 部署）
+
+```bash
+docker compose -f docker-compose.prod.yml up --build -d
+```
+
+打開 `http://localhost:3000`。同事連 `http://<你的區網 IP>:3000`（Windows 仍需放行 :3000 inbound）。
+
+或純 Docker：
+
+```bash
+docker build -t office-colosseum .
+docker run --rm -p 3000:3000 office-colosseum
+```
+
+---
+
+## 快速開始（不用 Docker）
 
 ### 1. 安裝依賴
 

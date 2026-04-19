@@ -1,0 +1,37 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: npm run dev:server
+    environment:
+      - PORT=3000
+      - NODE_ENV=development
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/packages/shared/node_modules
+      - /app/packages/server/node_modules
+      - /app/packages/client/node_modules
+    working_dir: /app
+
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: npm run dev:client
+    environment:
+      - VITE_PROXY_TARGET=http://server:3000
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/packages/shared/node_modules
+      - /app/packages/server/node_modules
+      - /app/packages/client/node_modules
+    depends_on:
+      - server
+    working_dir: /app

@@ -1,0 +1,13 @@
+FROM node:22-alpine
+WORKDIR /app
+
+# Copy package manifests only — dependency install layer is cached
+# until any package.json changes.
+COPY package.json package-lock.json ./
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/server/package.json ./packages/server/
+COPY packages/client/package.json ./packages/client/
+
+RUN npm ci
+
+# Source is bind-mounted via docker-compose at runtime — no COPY here.

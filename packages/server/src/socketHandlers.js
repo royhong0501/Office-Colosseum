@@ -13,7 +13,10 @@ export function registerSocketHandlers(io) {
     socket.on(MSG.START, () => {
       const p = lobby.players.get(socket.id);
       if (!p?.isHost || !lobby.canStart() || match) return;
-      match = new Match(io, [...lobby.players.values()], () => { match = null; });
+      match = new Match(io, [...lobby.players.values()], () => {
+        match = null;
+        lobby.resetForNewMatch();
+      });
       match.start();
     });
     socket.on(MSG.INPUT, input => { if (match) match.queueInput(socket.id, input); });

@@ -33,6 +33,13 @@ export class Lobby {
     if (this.players.size < MIN_PLAYERS) return false;
     return [...this.players.values()].every(p => p.ready && p.characterId);
   }
+  resetForNewMatch() {
+    for (const p of this.players.values()) {
+      p.ready = false;
+      // keep characterId so players don't have to re-pick
+    }
+    this.broadcast();
+  }
   snapshot() { return { players: [...this.players.values()] }; }
   broadcast() { this.io.emit(MSG.LOBBY_STATE, this.snapshot()); }
 }

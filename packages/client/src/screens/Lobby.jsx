@@ -14,8 +14,13 @@ export default function Lobby({ onMatchStart, onBack }) {
   const socket = getSocket();
 
   useEffect(() => {
-    // Join lobby
-    socket.emit(MSG.JOIN, { name: 'Player-' + socket.id.slice(0, 4) });
+    const doJoin = () => {
+      const sid = socket.id ?? '';
+      const suffix = sid ? sid.slice(0, 4) : Math.random().toString(36).slice(2, 6);
+      socket.emit(MSG.JOIN, { name: 'Player-' + suffix });
+    };
+    if (socket.connected) doJoin();
+    else socket.once('connect', doJoin);
 
     const onLobbyState = (data) => setPlayers(data.players ?? []);
     const onMatchStartEvt = (payload) => onMatchStart(payload);
@@ -24,6 +29,7 @@ export default function Lobby({ onMatchStart, onBack }) {
     socket.on(MSG.MATCH_START, onMatchStartEvt);
 
     return () => {
+      socket.off('connect', doJoin);
       socket.off(MSG.LOBBY_STATE, onLobbyState);
       socket.off(MSG.MATCH_START, onMatchStartEvt);
     };
@@ -46,6 +52,17 @@ export default function Lobby({ onMatchStart, onBack }) {
   const canStart =
     players.length >= MIN_PLAYERS &&
     players.every((p) => p.ready && p.characterId);
+
+  const startDisabledReason = (() => {
+    if (players.length < MIN_PLAYERS) {
+      return `還差 ${MIN_PLAYERS - players.length} 人（最少 ${MIN_PLAYERS} 人）`;
+    }
+    const noChar = players.find((p) => !p.characterId);
+    if (noChar) return `${noChar.name} 尚未選角色`;
+    const notReady = players.find((p) => !p.ready);
+    if (notReady) return `${notReady.name} 尚未按準備`;
+    return null;
+  })();
 
   // ---- Loading placeholder ----
   if (!me) {
@@ -160,19 +177,29 @@ export default function Lobby({ onMatchStart, onBack }) {
             </button>
 
             {me.isHost && (
-              <button
-                onClick={handleStart}
-                disabled={!canStart}
-                style={{
-                  padding: '8px 0', borderRadius: 3, border: 'none',
-                  cursor: canStart ? 'pointer' : 'not-allowed',
-                  background: canStart ? excelColors.accent : excelColors.cellBorder,
-                  color: '#F5F0E8', fontWeight: 700, fontSize: 12,
-                  fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif',
-                }}
-              >
-                ▶ 開始比賽
-              </button>
+              <>
+                <button
+                  onClick={handleStart}
+                  disabled={!canStart}
+                  style={{
+                    padding: '8px 0', borderRadius: 3, border: 'none',
+                    cursor: canStart ? 'pointer' : 'not-allowed',
+                    background: canStart ? excelColors.accent : excelColors.cellBorder,
+                    color: '#F5F0E8', fontWeight: 700, fontSize: 12,
+                    fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif',
+                  }}
+                >
+                  ▶ 開始比賽
+                </button>
+                {!canStart && startDisabledReason && (
+                  <div style={{
+                    fontSize: 10, color: excelColors.textLight,
+                    textAlign: 'center', lineHeight: 1.4, marginTop: -2,
+                  }}>
+                    {startDisabledReason}
+                  </div>
+                )}
+              </>
             )}
 
             <button
@@ -274,7 +301,7 @@ export default function Lobby({ onMatchStart, onBack }) {
                         overflow: 'hidden',
                         maxHeight: 40,
                       }}>
-                        {ch.asciiArt.split('\n').slice(0, 4).join('\n')}
+                        {(ch.ascii ?? []).slice(0, 4).join('\n')}
                       </pre>
                       <div style={{
                         fontSize: 9, marginTop: 3,
@@ -313,7 +340,7 @@ export default function Lobby({ onMatchStart, onBack }) {
                 <span>SPD: {picked.stats.spd}</span>
                 <span>SPC: {picked.stats.spc}</span>
                 <span style={{ color: excelColors.textLight, fontSize: 10 }}>
-                  技能: {picked.skillName}
+                  技能: {picked.skill}
                 </span>
               </div>
             );

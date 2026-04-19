@@ -14,7 +14,7 @@ const RECENT_FILES = [
   { name: '預算提案草稿.xlsx', date: '2026/04/07', size: '1.1 MB' },
 ];
 
-export default function MainMenu({ onStart }) {
+export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
   const [hoveredCell, setHoveredCell] = useState(null);
 
   // ExcelMenuBar expects onNavigate — wire it to a no-op since routing is prop-driven
@@ -44,9 +44,9 @@ export default function MainMenu({ onStart }) {
           </div>
 
           {[
-            { icon: '\u26D4', label: '連線對戰 / Play Online', desc: '加入多人競技場', isMain: true },
-            { icon: '\uD83D\uDCCA', label: '角色資料庫', desc: '查看所有角色能力值', isMain: false },
-            { icon: '\uD83D\uDCC8', label: '戰績報表', desc: '歷史對戰數據分析', isMain: false },
+            { icon: '\u26D4', label: '連線對戰 / Play Online', desc: '加入多人競技場', isMain: true, onClick: onStart },
+            { icon: '\uD83D\uDCCA', label: '角色資料庫', desc: '查看所有角色能力值', isMain: false, onClick: onOpenCharacters },
+            { icon: '\uD83D\uDCC8', label: '戰績報表', desc: '歷史對戰數據分析', isMain: false, onClick: onOpenHistory },
           ].map((item, i) => (
             <div
               key={i}
@@ -60,7 +60,7 @@ export default function MainMenu({ onStart }) {
               }}
               onMouseEnter={() => setHoveredCell(`menu${i}`)}
               onMouseLeave={() => setHoveredCell(null)}
-              onClick={item.isMain ? onStart : undefined}
+              onClick={item.onClick}
             >
               <div style={{ fontSize: 14, fontWeight: item.isMain ? 700 : 600 }}>
                 {item.label}
