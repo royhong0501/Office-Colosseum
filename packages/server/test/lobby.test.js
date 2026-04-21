@@ -94,3 +94,48 @@ test('removeBot: 不存在的 botId 回 not_bot', () => {
   const result = lobby.removeBot('socket-host', 'bot-999');
   assert.deepEqual(result, { error: 'not_bot' });
 });
+
+test('resetForNewMatch: 清掉所有 bot、重置 nextBotSeq、保留真人 characterId', () => {
+  const io = makeIo();
+  const lobby = new Lobby(io);
+  lobby.join('socket-host', 'Host');
+  lobby.pick('socket-host', ALL_CHARACTERS[0].id);
+  lobby.setReady('socket-host', true);
+  lobby.addBot('socket-host');
+  lobby.addBot('socket-host');
+  assert.equal(lobby.players.size, 3);
+
+  lobby.resetForNewMatch();
+
+  assert.equal(lobby.players.size, 1);
+  assert.equal(lobby.players.get('socket-host').characterId, ALL_CHARACTERS[0].id);
+  assert.equal(lobby.players.get('socket-host').ready, false);
+  assert.equal(lobby.nextBotSeq, 1);
+
+  // 再加一個 bot，應該從 bot-1 開始
+  const r = lobby.addBot('socket-host');
+  assert.equal(r.botId, 'bot-1');
+});
+
+test('leave: host 走後還有真人，bot 保留', () => {
+  const io = makeIo();
+  const lobby = new Lobby(io);
+  lobby.join('socket-host', 'Host');
+  lobby.join('socket-guest', 'Guest');
+  lobby.addBot('socket-host');
+  lobby.leave('socket-host');
+  assert.equal(lobby.players.size, 2);
+  assert.equal(lobby.players.get('socket-guest').isHost, true);
+  assert.ok([...lobby.players.values()].some(p => p.isBot));
+});
+
+test('leave: 真人全走了，bot 全清', () => {
+  const io = makeIo();
+  const lobby = new Lobby(io);
+  lobby.join('socket-host', 'Host');
+  lobby.addBot('socket-host');
+  lobby.addBot('socket-host');
+  assert.equal(lobby.players.size, 3);
+  lobby.leave('socket-host');
+  assert.equal(lobby.players.size, 0);
+});

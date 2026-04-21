@@ -20,9 +20,16 @@ export class Lobby {
   leave(socketId) {
     const wasHost = this.players.get(socketId)?.isHost;
     this.players.delete(socketId);
-    if (wasHost && this.players.size > 0) {
-      const next = this.players.values().next().value;
-      next.isHost = true;
+    // 如果沒有真人剩下，清掉所有 bot（空 lobby 保留 bot 無意義）
+    const hasRealPlayer = [...this.players.values()].some(p => !p.isBot);
+    if (!hasRealPlayer) {
+      for (const [id, p] of this.players) {
+        if (p.isBot) this.players.delete(id);
+      }
+    } else if (wasHost) {
+      // 把 host 權遞給第一個真人（不是 bot）
+      const nextHost = [...this.players.values()].find(p => !p.isBot);
+      if (nextHost) nextHost.isHost = true;
     }
     this.broadcast();
   }
@@ -66,10 +73,15 @@ export class Lobby {
     return { ok: true };
   }
   resetForNewMatch() {
-    for (const p of this.players.values()) {
-      p.ready = false;
-      // keep characterId so players don't have to re-pick
+    for (const [id, p] of this.players) {
+      if (p.isBot) {
+        this.players.delete(id);
+      } else {
+        p.ready = false;
+        // keep characterId so players don't have to re-pick
+      }
     }
+    this.nextBotSeq = 1;
     this.broadcast();
   }
   snapshot() { return { players: [...this.players.values()] }; }
