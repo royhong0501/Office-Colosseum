@@ -56,6 +56,15 @@ export class Lobby {
     this.broadcast();
     return { ok: true, botId: id };
   }
+  removeBot(requesterId, botId) {
+    const requester = this.players.get(requesterId);
+    if (!requester?.isHost) return { error: 'not_host' };
+    const target = this.players.get(botId);
+    if (!target?.isBot) return { error: 'not_bot' };
+    this.players.delete(botId);
+    this.broadcast();
+    return { ok: true };
+  }
   resetForNewMatch() {
     for (const p of this.players.values()) {
       p.ready = false;
