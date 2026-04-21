@@ -1,3 +1,5 @@
+import { PROJECTILE_MAX_DIST } from '@office-colosseum/shared';
+
 /**
  * 決定一個 bot 這個 tick 要做什麼。純函式，不 mutate state。
  * @param {object} state - GameState from shared/simulation.js
@@ -15,6 +17,19 @@ export function decideBotInput(state, botId, now) {
   const dx = target.x - me.x;
   const dy = target.y - me.y;
 
+  // Case 2: 對齊（dx===0 or dy===0，且不是同格）
+  if ((dx === 0) !== (dy === 0)) {
+    const dir = dx === 0
+      ? (dy > 0 ? 'down' : 'up')
+      : (dx > 0 ? 'right' : 'left');
+    const dist = Math.abs(dx) + Math.abs(dy);  // 其中一個是 0
+    if (dist <= PROJECTILE_MAX_DIST) {
+      return { seq: 0, dir, attack: true, skill: true };
+    } else {
+      return { seq: 0, dir, attack: false, skill: false };
+    }
+  }
+
   // Case 3: 未對齊 — 縮較小軸（tie 選橫軸）
   if (dx !== 0 && dy !== 0) {
     const dir = Math.abs(dx) <= Math.abs(dy)
@@ -23,7 +38,7 @@ export function decideBotInput(state, botId, now) {
     return { seq: 0, dir, attack: false, skill: false };
   }
 
-  // TODO(next task): Case 2 對齊時
+  // TODO(next task): Case 1 同格
   return idle();
 }
 

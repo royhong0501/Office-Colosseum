@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { decideBotInput } from '../src/bot.js';
-import { createInitialState, ALL_CHARACTERS } from '@office-colosseum/shared';
+import { createInitialState, ALL_CHARACTERS, PROJECTILE_MAX_DIST } from '@office-colosseum/shared';
 
 function makeStateWithTwo(aPos, bPos) {
   const s = createInitialState([
@@ -75,4 +75,39 @@ test('decideBotInput: 敵人已死 → 切到下個活的', () => {
   // nearest alive 是 'alive' 在 (6,4) → dx=6, dy=4 → 走縱軸 down
   const input = decideBotInput(s, 'bot-1', 1000);
   assert.equal(input.dir, 'down');
+});
+
+test('decideBotInput: 對齊同 row 近距離（dy=0, dx=3）→ right + attack + skill', () => {
+  const s = makeStateWithTwo({ x: 5, y: 5 }, { x: 8, y: 5 });
+  const input = decideBotInput(s, 'bot-1', 1000);
+  assert.equal(input.dir, 'right');
+  assert.equal(input.attack, true);
+  assert.equal(input.skill, true);
+});
+
+test('decideBotInput: 對齊同 col 近距離（dx=0, dy=-4）→ up + attack + skill', () => {
+  const s = makeStateWithTwo({ x: 5, y: 5 }, { x: 5, y: 1 });
+  const input = decideBotInput(s, 'bot-1', 1000);
+  assert.equal(input.dir, 'up');
+  assert.equal(input.attack, true);
+  assert.equal(input.skill, true);
+});
+
+test('decideBotInput: 對齊遠距離（dx=0, dy > PROJECTILE_MAX_DIST）→ 只面向不開火', () => {
+  // bot (0,0)、敵人 (15,0)，15 > 12 → 超出射程
+  const s = makeStateWithTwo({ x: 0, y: 0 }, { x: 15, y: 0 });
+  assert.ok(15 > PROJECTILE_MAX_DIST, 'sanity: 15 必須大於 MAX_DIST');
+  const input = decideBotInput(s, 'bot-1', 1000);
+  assert.equal(input.dir, 'right');
+  assert.equal(input.attack, false);
+  assert.equal(input.skill, false);
+});
+
+test('decideBotInput: 對齊邊界距離（dx=0, dy = PROJECTILE_MAX_DIST）→ 開火', () => {
+  // bot (0,0)、敵人 (12,0)，12 = 12 → 正好邊界應該開火
+  const s = makeStateWithTwo({ x: 0, y: 0 }, { x: 12, y: 0 });
+  const input = decideBotInput(s, 'bot-1', 1000);
+  assert.equal(input.dir, 'right');
+  assert.equal(input.attack, true);
+  assert.equal(input.skill, true);
 });
