@@ -49,6 +49,10 @@ export default function Lobby({ onMatchStart, onBack }) {
     socket.emit(MSG.START, {});
   };
 
+  const handleAddBot = () => {
+    socket.emit(MSG.ADD_BOT);
+  };
+
   const canStart =
     players.length >= MIN_PLAYERS &&
     players.every((p) => p.ready && p.characterId);
@@ -199,6 +203,21 @@ export default function Lobby({ onMatchStart, onBack }) {
                     {startDisabledReason}
                   </div>
                 )}
+                <button
+                  onClick={handleAddBot}
+                  disabled={players.length >= 8}
+                  style={{
+                    padding: '6px 0', borderRadius: 3,
+                    border: `1px solid ${excelColors.cellBorder}`,
+                    background: players.length >= 8 ? excelColors.headerBg : excelColors.cellBg,
+                    color: players.length >= 8 ? excelColors.cellBorder : excelColors.text,
+                    cursor: players.length >= 8 ? 'not-allowed' : 'pointer',
+                    fontSize: 11,
+                    fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif',
+                  }}
+                >
+                  + 新增電腦對手
+                </button>
               </>
             )}
 
