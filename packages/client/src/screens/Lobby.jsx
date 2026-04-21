@@ -53,6 +53,10 @@ export default function Lobby({ onMatchStart, onBack }) {
     socket.emit(MSG.ADD_BOT);
   };
 
+  const handleRemoveBot = (botId) => {
+    socket.emit(MSG.REMOVE_BOT, { botId });
+  };
+
   const canStart =
     players.length >= MIN_PLAYERS &&
     players.every((p) => p.ready && p.characterId);
@@ -132,6 +136,11 @@ export default function Lobby({ onMatchStart, onBack }) {
                         HOST
                       </span>
                     )}
+                    {p.isBot && (
+                      <span style={{ fontSize: 10, background: excelColors.blueAccent, color: '#F5F0E8', padding: '1px 4px', borderRadius: 2 }}>
+                        CPU
+                      </span>
+                    )}
                     <span style={{ fontWeight: isMe ? 700 : 400, color: excelColors.text }}>
                       {p.name}
                     </span>
@@ -139,6 +148,25 @@ export default function Lobby({ onMatchStart, onBack }) {
                       <span style={{ marginLeft: 'auto', color: excelColors.greenAccent, fontWeight: 700 }}>
                         ✔
                       </span>
+                    )}
+                    {me.isHost && p.isBot && (
+                      <button
+                        onClick={() => handleRemoveBot(p.id)}
+                        title="移除"
+                        style={{
+                          marginLeft: p.ready ? 6 : 'auto',
+                          background: 'transparent',
+                          border: `1px solid ${excelColors.cellBorder}`,
+                          color: excelColors.textLight,
+                          cursor: 'pointer',
+                          fontSize: 10,
+                          lineHeight: 1,
+                          padding: '1px 4px',
+                          fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif',
+                        }}
+                      >
+                        ✕
+                      </button>
                     )}
                   </div>
                   <div style={{ fontSize: 10, color: excelColors.textLight, marginTop: 2 }}>
