@@ -171,9 +171,10 @@ Express + socket.io，`src/index.js` 啟動時掛靜態 `../client/dist` 和 soc
 
 三個核心類別／模組：
 
-- **`lobby.js` (`Lobby` 類別)**：管 slot、角色選擇、ready flag。第一位連線者自動變 host，host 離開時自動把 host 權遞給下一個人（`leave` 裡的 host promotion 邏輯）。`canStart()` 要求 ≥ `MIN_PLAYERS` 且所有人都 ready 且都挑了角色。`resetForNewMatch()` 在 Match 結束後清掉所有人的 `ready=false`，**但保留 `characterId`**（讓玩家不用重選角色）。`join()` 對同一個 `socketId` 是 idempotent 的——重複呼叫只會 re-broadcast 現有狀態，不會重複佔 slot，所以 client 重連時多 emit 一次 JOIN 是安全的。
+- **`lobby.js` (`Lobby` 類別)**：管 slot、角色選擇、ready flag。第一位連線者自動變 host，host 離開時自動把 host 權遞給下一個人（`leave` 裡的 host promotion 邏輯）。`canStart()` 要求 ≥ `MIN_PLAYERS` 且所有人都 ready 且都挑了角色。`resetForNewMatch()` 在 Match 結束後清掉所有人的 `ready=false`，**但保留 `characterId`**（讓玩家不用重選角色）。`join()` 對同一個 `socketId` 是 idempotent 的——重複呼叫只會 re-broadcast 現有狀態，不會重複佔 slot，所以 client 重連時多 emit 一次 JOIN 是安全的。 Host 可在 lobby 透過 `addBot(requesterId)` 新增隨機角色的 bot（`id = 'bot-N'`、`name = 'Bot-N'`、`ready: true`、`isBot: true`），上限 `MAX_PLAYERS=8`。`removeBot(requesterId, botId)` 移除。`resetForNewMatch()` 會清掉所有 bot 並重置 `nextBotSeq`。`leave()` 後若沒有真人剩下，自動清空所有 bot（空 lobby 保留 bot 無意義）。
 - **`match.js` (`Match` 類別)**：拿 shared 的 `GameState` 跑 `setInterval(TICK_MS)` 的 30 Hz tick loop。每個 tick：drain input queue → 對每個 player 跑 `applyInput` → `resolveTick` → 廣播 `snapshot` → 若 ended 就 `match_end` → 觸發 `onEnd` callback 讓 `socketHandlers` 重置 lobby。同時維護每人的 `stats: {dmgDealt, dmgTaken, survivedTicks}` 給結算畫面用。
 - **`socketHandlers.js`**：把 socket event 綁到 Lobby / Match 方法。`disconnect` 被視為離開 lobby + 取消暫停（對進行中的 match 就是淘汰）。Match 的 `onEnd` callback 會 null 掉 match ref 並呼叫 `lobby.resetForNewMatch()`。
+- **`bot.js`**：純函式 `decideBotInput(state, botId, now)`，回傳跟真人 INPUT 同 shape 的輸入。決策樹：死/沒敵人 → idle；未對齊 → 縮較小軸；對齊且在 `PROJECTILE_MAX_DIST` 內 → 面向 target + attack + skill；對齊但超距 → 面向推進不開火；同格疊在一起 → 盲射。**不讀 `state.projectiles`**——刻意界線，不躲彈不預判。Match tick 中對每個 `isBot && alive` 的 player 呼叫，包 try/catch fallback idle。
 
 **⚠️ Match tick 的 event 處理（容易踩雷）**：
 
@@ -219,6 +220,8 @@ Express + socket.io，`src/index.js` 啟動時掛靜態 `../client/dist` 和 soc
 | C→S | `INPUT` | `{ seq, dir, attack, skill }` — 每 client tick 一筆 |
 | C→S | `PAUSED` | `{ paused }` — 老闆鍵進／出 |
 | C→S | `LEAVE` | `{}` |
+| C→S | `ADD_BOT` | `{}` — 僅 host；滿/非 host/進行中時回 ERROR |
+| C→S | `REMOVE_BOT` | `{ botId }` — 僅 host；目標必須是 bot 否則 ERROR |
 | S→C | `LOBBY_STATE` | `{ players }` |
 | S→C | `MATCH_START` | `{ state }` — 完整 initial GameState |
 | S→C | `SNAPSHOT` | `{ tick, players, projectiles, events }` — 30 Hz |
@@ -278,6 +281,7 @@ Express + socket.io，`src/index.js` 啟動時掛靜態 `../client/dist` 和 soc
 - **Socket event 字串**：寫死 `'snapshot'` 之類的字串可以跑、但 refactor 時會漏改——一律用 `MSG.SNAPSHOT`。
 - **Windows 路徑**：主要開發環境是 Windows，但 shell 是 bash/Git-Bash。寫 path 用正斜線（`/dev/null` 不要寫 `NUL`；forward slashes）。跑 `docker run -v` bind mount 時路徑會被 Git-Bash 當 POSIX 亂 mangle，需要 `MSYS_NO_PATHCONV=1` prefix。
 - **區網防火牆**：LAN 主機要手動在 Windows Defender 放行 :3000 inbound，不然同事連不進來。
+- **Bot AI 與 simulation schema 耦合**：`packages/server/src/bot.js` 直接讀 `state.players[id].{x,y,alive}` 結構；simulation.js 改 schema 時 bot 會連帶壞。24 個 bot 單元測試會第一個變紅——相信測試，別單獨修 bot.js 讓綠燈回來而不看 schema 是否真的改動。
 
 ---
 
