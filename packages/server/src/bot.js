@@ -38,8 +38,8 @@ export function decideBotInput(state, botId, now) {
     return { seq: 0, dir, attack: false, skill: false };
   }
 
-  // TODO(next task): Case 1 同格
-  return idle();
+  // Case 1: 同格（dx===0 && dy===0，無碰撞系統造成的罕見狀況）
+  return { seq: 0, dir: null, attack: true, skill: true };
 }
 
 function idle() {

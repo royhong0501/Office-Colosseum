@@ -111,3 +111,11 @@ test('decideBotInput: 對齊邊界距離（dx=0, dy = PROJECTILE_MAX_DIST）→ 
   assert.equal(input.attack, true);
   assert.equal(input.skill, true);
 });
+
+test('decideBotInput: 同格（dx=0, dy=0）→ dir null + attack + skill（盲射當前 facing）', () => {
+  const s = makeStateWithTwo({ x: 5, y: 5 }, { x: 5, y: 5 });
+  const input = decideBotInput(s, 'bot-1', 1000);
+  assert.equal(input.dir, null);
+  assert.equal(input.attack, true);
+  assert.equal(input.skill, true);
+});
