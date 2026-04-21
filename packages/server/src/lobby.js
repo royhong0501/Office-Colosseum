@@ -3,7 +3,7 @@ import { MAX_PLAYERS, MIN_PLAYERS, MSG } from '@office-colosseum/shared';
 export class Lobby {
   constructor(io) {
     this.io = io;
-    this.players = new Map();  // socketId -> { id, name, characterId, ready, isHost }
+    this.players = new Map();  // socketId -> { id, name, characterId, ready, isHost, isBot }
   }
   join(socketId, name) {
     if (this.players.has(socketId)) {
@@ -12,7 +12,7 @@ export class Lobby {
     }
     if (this.players.size >= MAX_PLAYERS) return { error: 'full' };
     const isHost = this.players.size === 0;
-    this.players.set(socketId, { id: socketId, name, characterId: null, ready: false, isHost });
+    this.players.set(socketId, { id: socketId, name, characterId: null, ready: false, isHost, isBot: false });
     this.broadcast();
     return { ok: true };
   }

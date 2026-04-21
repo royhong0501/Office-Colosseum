@@ -11,4 +11,6 @@ export const MSG = {
   PAUSED: 'paused',
   LEAVE: 'leave',
   ERROR: 'error',
+  ADD_BOT: 'add_bot',
+  REMOVE_BOT: 'remove_bot',
 };
