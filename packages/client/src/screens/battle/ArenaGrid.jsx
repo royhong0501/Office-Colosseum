@@ -1,6 +1,6 @@
 import React from 'react';
 import { getCharacterById } from '@office-colosseum/shared';
-import AsciiCharacter from '../../components/AsciiCharacter.jsx';
+import PixelCharacter from '../../components/PixelCharacter.jsx';
 import { excelColors } from '../../theme.js';
 
 const GRID_W = 16;
@@ -14,14 +14,17 @@ function isArenaCenter(x, y) {
   return dx * dx + dy * dy < 1;
 }
 
-// Props: { players: Array<Player>, effects: Array<{id,x,y,text,color}>, selfId: string }
-export default function ArenaGrid({ players, effects, selfId }) {
-  // Build lookup maps for fast cell rendering
+// Props: { players, effects, projectiles, shootingIds, hurtIds, selfId }
+export default function ArenaGrid({
+  players,
+  effects,
+  projectiles = [],
+  shootingIds,
+  hurtIds,
+  selfId,
+}) {
   const playerByCell = {};
-  for (const p of players) {
-    const key = `${p.x},${p.y}`;
-    playerByCell[key] = p;
-  }
+  for (const p of players) playerByCell[`${p.x},${p.y}`] = p;
 
   const effectsByCell = {};
   for (const eff of effects) {
@@ -62,8 +65,35 @@ export default function ArenaGrid({ players, effects, selfId }) {
         position: 'relative',
         overflow: 'hidden',
       }}>
+        {/* Projectile overlay — above cells, below floating damage text */}
+        {projectiles.length > 0 && (
+          <svg
+            viewBox={`0 0 ${GRID_W} ${GRID_H}`}
+            preserveAspectRatio="none"
+            style={{
+              position: 'absolute',
+              top: 0, left: 28, right: 0, bottom: 0,
+              pointerEvents: 'none',
+              zIndex: 30,
+            }}
+          >
+            {projectiles.map(proj => (
+              <circle
+                key={proj.id}
+                cx={proj.x + 0.5}
+                cy={proj.y + 0.5}
+                r={proj.isSkill ? 0.12 : 0.08}
+                fill={proj.isSkill ? '#B85450' : '#DAA520'}
+                style={{
+                  transition: 'cx 33ms linear, cy 33ms linear',
+                  filter: `drop-shadow(0 0 1.5px ${proj.isSkill ? '#B85450' : '#DAA520'})`,
+                }}
+              />
+            ))}
+          </svg>
+        )}
+
         {Array.from({ length: GRID_H }, (_, row) => [
-          // Row number header
           <div key={`r${row}`} style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 9, color: excelColors.textLight,
@@ -72,7 +102,6 @@ export default function ArenaGrid({ players, effects, selfId }) {
             borderBottom: `0.5px solid ${excelColors.cellBorder}`,
           }}>{row + 1}</div>,
 
-          // Grid cells
           ...Array.from({ length: GRID_W }, (_, col) => {
             const cellKey = `${col},${row}`;
             const p = playerByCell[cellKey];
@@ -88,7 +117,6 @@ export default function ArenaGrid({ players, effects, selfId }) {
             }
 
             const character = p ? getCharacterById(p.characterId) : null;
-            const facing = p && p.facing === 'left' ? -1 : 1;
 
             return (
               <div key={`c${row}-${col}`} style={{
@@ -96,36 +124,32 @@ export default function ArenaGrid({ players, effects, selfId }) {
                 background: bg,
                 position: 'relative',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                overflow: 'hidden',
+                overflow: 'visible',
                 boxShadow: isSelf
                   ? `inset 0 0 0 2px ${excelColors.greenAccent}`
                   : inArena ? 'inset 0 0 4px rgba(139,115,85,0.08)' : 'none',
-                // Greyscale overlay for paused players
                 filter: p && p.paused ? 'grayscale(0.8)' : 'none',
               }}>
-                {/* Arena center dot */}
                 {!p && inArena && (
                   <span style={{ color: excelColors.cellBorder, fontSize: 7 }}>·</span>
                 )}
 
-                {/* Player: alive */}
                 {p && p.alive && character && (
                   <div style={{
                     position: 'absolute', inset: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    // Self-halo glow
-                    boxShadow: isSelf ? `0 0 6px ${excelColors.greenAccent}80` : 'none',
                   }}>
-                    <AsciiCharacter
+                    <PixelCharacter
                       character={character}
-                      scale={0.55}
+                      facing={p.facing}
+                      shooting={shootingIds?.has(p.id) ?? false}
+                      hurt={hurtIds?.has(p.id) ?? false}
                       highlight={isSelf}
-                      direction={facing}
+                      size={28}
                     />
                   </div>
                 )}
 
-                {/* Player: dead (grave marker) */}
                 {p && !p.alive && (
                   <div style={{
                     position: 'absolute', inset: 0,
@@ -135,7 +159,6 @@ export default function ArenaGrid({ players, effects, selfId }) {
                   }}>✝</div>
                 )}
 
-                {/* Floating damage effects */}
                 {cellEffects && cellEffects.map(eff => (
                   <div key={eff.id} style={{
                     position: 'absolute', top: -8, left: '50%',

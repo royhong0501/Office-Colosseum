@@ -9,20 +9,40 @@ import { useInputCapture } from './battle/useInputCapture.js';
 export default function NetworkedBattle({ initialState, onEnd }) {
   const socket = getSocket();
   const [players, setPlayers] = useState(initialState?.state?.players ?? {});
+  const [projectiles, setProjectiles] = useState([]);
   const [tick, setTick] = useState(0);
   const [log, setLog] = useState(['=BATTLE.START("對戰開始")']);
   const [effects, setEffects] = useState([]);
+  const [shootingIds, setShootingIds] = useState(() => new Set());
+  const [hurtIds, setHurtIds] = useState(() => new Set());
   const readInput = useInputCapture();
 
   const playersRef = useRef(players);
   playersRef.current = players;
 
   useEffect(() => {
+    const addTransient = (setter, id, ms) => {
+      setter(prev => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+      setTimeout(() => setter(prev => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      }), ms);
+    };
+
     const onSnap = snap => {
       setPlayers(snap.players);
+      setProjectiles(snap.projectiles ?? []);
       setTick(snap.tick);
       for (const e of snap.events ?? []) {
-        if (e.type === 'damage') {
+        if (e.type === 'projectile_spawn') {
+          addTransient(setShootingIds, e.ownerId, 180);
+        } else if (e.type === 'damage') {
           const src = getCharacterById(snap.players[e.sourceId]?.characterId)?.name ?? e.sourceId.slice(0, 4);
           const tgt = getCharacterById(snap.players[e.targetId]?.characterId)?.name ?? e.targetId.slice(0, 4);
           setLog(l => [...l.slice(-8),
@@ -34,6 +54,7 @@ export default function NetworkedBattle({ initialState, onEnd }) {
             color: e.isSkill ? '#B85450' : '#DAA520',
           }]);
           setTimeout(() => setEffects(eff => eff.filter(x => x.id !== id)), 800);
+          addTransient(setHurtIds, e.targetId, 220);
         } else if (e.type === 'eliminated') {
           const name = getCharacterById(snap.players[e.playerId]?.characterId)?.name ?? e.playerId.slice(0, 4);
           setLog(l => [...l.slice(-8), `=ELIMINATED("${name}")`]);
@@ -54,7 +75,6 @@ export default function NetworkedBattle({ initialState, onEnd }) {
   const selfId = socket.id;
   const playerList = Object.values(players);
 
-  // Track now for skill cooldown countdown
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 500);
@@ -65,7 +85,14 @@ export default function NetworkedBattle({ initialState, onEnd }) {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#FDFBF7' }}>
       <BattleHUD players={playerList} selfId={selfId} now={now} />
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <ArenaGrid players={playerList} effects={effects} selfId={selfId} />
+        <ArenaGrid
+          players={playerList}
+          effects={effects}
+          projectiles={projectiles}
+          shootingIds={shootingIds}
+          hurtIds={hurtIds}
+          selfId={selfId}
+        />
       </div>
       <BattleLog log={log} />
     </div>

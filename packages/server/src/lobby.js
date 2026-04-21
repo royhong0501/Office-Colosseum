@@ -6,6 +6,10 @@ export class Lobby {
     this.players = new Map();  // socketId -> { id, name, characterId, ready, isHost }
   }
   join(socketId, name) {
+    if (this.players.has(socketId)) {
+      this.broadcast();
+      return { ok: true };
+    }
     if (this.players.size >= MAX_PLAYERS) return { error: 'full' };
     const isHost = this.players.size === 0;
     this.players.set(socketId, { id: socketId, name, characterId: null, ready: false, isHost });

@@ -38,7 +38,12 @@ export class Match {
         this.stats[e.targetId].dmgTaken += e.amount;
       }
     }
-    this.io.emit(MSG.SNAPSHOT, { tick: state.tick, players: state.players, events: newEvents });
+    this.io.emit(MSG.SNAPSHOT, {
+      tick: state.tick,
+      players: state.players,
+      projectiles: state.projectiles,
+      events: newEvents,
+    });
     if (state.phase === 'ended' || aliveCount(state) <= 1) this.end();
   }
   end() {

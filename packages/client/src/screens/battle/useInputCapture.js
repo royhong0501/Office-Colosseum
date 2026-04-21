@@ -24,8 +24,9 @@ export function useInputCapture() {
     else if (k.has('d') || k.has('arrowright')) dir = 'right';
     const attack = k.has('j');
     const skill = k.has('k');
-    // consume one-shots so server sees the action exactly once per keypress
-    k.delete('j'); k.delete('k');
+    // attack is held-key — server enforces ATTACK_COOLDOWN_MS between shots.
+    // skill stays one-shot so a held K doesn't burn cooldown the instant it comes back up.
+    k.delete('k');
     return { seq: ++seq.current, dir, attack, skill };
   };
 }
