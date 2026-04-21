@@ -1,9 +1,10 @@
-import { MAX_PLAYERS, MIN_PLAYERS, MSG } from '@office-colosseum/shared';
+import { MAX_PLAYERS, MIN_PLAYERS, MSG, ALL_CHARACTERS } from '@office-colosseum/shared';
 
 export class Lobby {
   constructor(io) {
     this.io = io;
     this.players = new Map();  // socketId -> { id, name, characterId, ready, isHost, isBot }
+    this.nextBotSeq = 1;
   }
   join(socketId, name) {
     if (this.players.has(socketId)) {
@@ -36,6 +37,24 @@ export class Lobby {
   canStart() {
     if (this.players.size < MIN_PLAYERS) return false;
     return [...this.players.values()].every(p => p.ready && p.characterId);
+  }
+  addBot(requesterId) {
+    const requester = this.players.get(requesterId);
+    if (!requester?.isHost) return { error: 'not_host' };
+    if (this.players.size >= MAX_PLAYERS) return { error: 'lobby_full' };
+    const seq = this.nextBotSeq++;
+    const id = `bot-${seq}`;
+    const character = ALL_CHARACTERS[Math.floor(Math.random() * ALL_CHARACTERS.length)];
+    this.players.set(id, {
+      id,
+      name: `Bot-${seq}`,
+      characterId: character.id,
+      ready: true,
+      isHost: false,
+      isBot: true,
+    });
+    this.broadcast();
+    return { ok: true, botId: id };
   }
   resetForNewMatch() {
     for (const p of this.players.values()) {
