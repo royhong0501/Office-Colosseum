@@ -12,7 +12,18 @@ export function decideBotInput(state, botId, now) {
   const target = findNearestEnemy(state, botId);
   if (!target) return idle();
 
-  // TODO(next task): 未對齊時的移動邏輯
+  const dx = target.x - me.x;
+  const dy = target.y - me.y;
+
+  // Case 3: 未對齊 — 縮較小軸（tie 選橫軸）
+  if (dx !== 0 && dy !== 0) {
+    const dir = Math.abs(dx) <= Math.abs(dy)
+      ? (dx > 0 ? 'right' : 'left')
+      : (dy > 0 ? 'down' : 'up');
+    return { seq: 0, dir, attack: false, skill: false };
+  }
+
+  // TODO(next task): Case 2 對齊時
   return idle();
 }
 
