@@ -42,7 +42,7 @@ export class Match {
         input = decideBotInput(this.state, p.id, now);
       } catch (err) {
         console.warn(`bot ${p.id} decide failed:`, err);
-        input = { dir: null, attack: false, skill: false };
+        input = { moveX: 0, moveY: 0, aimAngle: 0, attack: false, skill: false };
       }
       const nextSeq = (this.botSeqMap.get(p.id) ?? 0) + 1;
       this.botSeqMap.set(p.id, nextSeq);

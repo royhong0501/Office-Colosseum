@@ -1,17 +1,7 @@
 import React from 'react';
 import { excelColors } from '../theme.js';
 
-const FACING_TRANSFORM = {
-  right: 'scaleX(1)',
-  left:  'scaleX(-1)',
-  up:    'rotate(-90deg)',
-  down:  'rotate(90deg)',
-};
-
-// Per-breed visual variants. Drives which ears / body shape / pattern / accents
-// get rendered on top of the base silhouette.
 const VARIANTS = {
-  // —— Cats ——
   munchkin:         { ears: 'pointy',  body: 'short',  eyeColor: '#1a8f2e' },
   persian:          { ears: 'tufted',  fluff: true },
   siamese:          { ears: 'pointy',  faceMask: '#6B4E2E', eyeColor: '#4B7FC8' },
@@ -23,7 +13,6 @@ const VARIANTS = {
   sphynx:           { ears: 'pointy',  hairless: true, eyeColor: '#B85450' },
   british_shorthair:{ ears: 'rounded', body: 'wide', eyeColor: '#D4A030' },
 
-  // —— Dogs ——
   husky:            { ears: 'sharp',   mask: true,   eyeColor: '#4B7FC8' },
   golden:           { ears: 'droop' },
   shiba:            { ears: 'sharp' },
@@ -36,18 +25,22 @@ const VARIANTS = {
   akita:            { ears: 'sharp',   twoTone: '#F5E6D3' },
 };
 
-export default function PixelCharacter({
+// 內部 SVG 繪圖元件，回傳 <g>，不包 <svg> 外框。facing 為弧度。
+// 身體依 cos(facing) 決定左右翻，槍獨立旋轉到精確 aim angle。
+export function PixelCharacterSvg({
   character,
-  facing = 'right',
+  facing = 0,
   shooting = false,
   hurt = false,
   highlight = false,
-  size = 28,
 }) {
   const body = character?.color ?? '#888';
   const shade = shadeColor(body, -0.22);
   const variant = VARIANTS[character?.id] ?? { ears: character?.type === 'cat' ? 'pointy' : 'droop' };
   const eyeColor = variant.eyeColor ?? '#000';
+
+  const facingDeg = (facing * 180) / Math.PI;
+  const bodyScaleX = Math.cos(facing) >= 0 ? 1 : -1;
 
   const animations = [
     'pixelBob 1.6s ease-in-out infinite',
@@ -55,37 +48,65 @@ export default function PixelCharacter({
     hurt ? 'hurtFlash 220ms ease-out' : '',
   ].filter(Boolean).join(', ');
 
+  // 槍旋轉中心：身體中心 (8, 10)；槍從這裡朝 aim 方向射出。
+  const gunPivotX = 8;
+  const gunPivotY = 10;
+
   return (
-    <div style={{
-      width: size,
-      height: size,
-      display: 'inline-block',
-      transform: FACING_TRANSFORM[facing] ?? FACING_TRANSFORM.right,
-      transition: 'transform 0.08s linear',
+    <g style={{
+      animation: animations,
       filter: highlight ? `drop-shadow(0 0 3px ${excelColors.greenAccent})` : 'none',
-      pointerEvents: 'none',
     }}>
-      <svg
-        viewBox="-1 0 18 16"
-        width={size}
-        height={size}
-        shapeRendering="crispEdges"
-        overflow="visible"
-        style={{ animation: animations, display: 'block' }}
-      >
+      {/* 身體部分（跟著 facing 左右翻，但不旋轉）*/}
+      <g transform={`translate(8 0) scale(${bodyScaleX} 1) translate(-8 0)`}
+         style={{ transition: 'transform 0.08s linear' }}>
         {renderBody(body, shade, variant)}
         {renderEars(body, shade, variant.ears)}
         {renderFace(variant, body)}
         {renderEyes(eyeColor, variant)}
         {renderPattern(variant)}
-        {renderGun()}
+      </g>
+      {/* 槍與槍口火花：旋轉到精確 aim angle */}
+      <g transform={`rotate(${facingDeg} ${gunPivotX} ${gunPivotY})`}
+         style={{ transition: 'transform 0.06s linear' }}>
+        {renderGun(gunPivotX, gunPivotY)}
         {shooting && (
           <circle
-            cx="17" cy="9.5" r="1.6"
+            cx={gunPivotX + 5} cy={gunPivotY} r="1.6"
             fill="#FFD700"
             style={{ animation: 'muzzleFlash 160ms ease-out forwards' }}
           />
         )}
+      </g>
+    </g>
+  );
+}
+
+// Default export：px 版本 wrapper，含 <svg> 外框，給舊的 CSS Grid / absolute 定位區使用。
+// 目前主戰場已改用 ArenaDisk + PixelCharacterSvg，保留此 wrapper 避免打爆別處。
+export default function PixelCharacter({
+  character, facing = 0, shooting = false, hurt = false, highlight = false, size = 28,
+}) {
+  return (
+    <div style={{
+      width: size, height: size,
+      display: 'inline-block',
+      pointerEvents: 'none',
+    }}>
+      <svg
+        viewBox="-1 0 18 16"
+        width={size} height={size}
+        shapeRendering="crispEdges"
+        overflow="visible"
+        style={{ display: 'block' }}
+      >
+        <PixelCharacterSvg
+          character={character}
+          facing={facing}
+          shooting={shooting}
+          hurt={hurt}
+          highlight={highlight}
+        />
       </svg>
     </div>
   );
@@ -96,25 +117,21 @@ function renderBody(body, shade, variant) {
   const { body: shape = 'normal', twoTone, fluff, hairless, curly } = variant;
   const bodyColor = hairless ? shadeColor(body, 0.15) : body;
 
-  // Dimensions keyed off the 16-wide viewBox, grounded at y=15.
   let torsoX = 3, torsoY = 7, torsoW = 10, torsoH = 6;
   let headX = 4, headY = 3, headW = 8, headH = 5;
   let legY = 13, legH = 2;
 
   if (shape === 'short') {
-    // Short stubby legs, body sits lower; corgi/munchkin vibe
     torsoY = 9; torsoH = 4;
     headY = 5; headH = 4;
     legY = 13; legH = 2;
   } else if (shape === 'wide') {
-    // Heavier frame; bulldog/maine coon
     torsoX = 2; torsoW = 12;
     headX = 3; headW = 10;
   }
 
   const parts = [];
 
-  // Fluffy outline — extra pixels around edges (persian, ragdoll, poodle)
   if (fluff) {
     parts.push(
       <rect key="f1" x={torsoX - 1} y={torsoY + 1} width="1" height={torsoH - 1} fill={shadeColor(body, 0.1)} />,
@@ -124,26 +141,21 @@ function renderBody(body, shade, variant) {
     );
   }
 
-  // Legs
   parts.push(
     <rect key="l1" x={torsoX + 1} y={legY} width="2" height={legH} fill={shade} />,
     <rect key="l2" x={torsoX + torsoW - 3} y={legY} width="2" height={legH} fill={shade} />,
   );
 
-  // Torso
   parts.push(<rect key="torso" x={torsoX} y={torsoY} width={torsoW} height={torsoH} fill={bodyColor} />);
 
-  // Two-tone back patch (border collie = white, german shepherd = tan saddle)
   if (twoTone) {
     parts.push(
       <rect key="tt" x={torsoX + 1} y={torsoY} width={torsoW - 2} height={Math.max(2, Math.floor(torsoH / 2))} fill={twoTone} />,
     );
   }
 
-  // Head
   parts.push(<rect key="head" x={headX} y={headY} width={headW} height={headH} fill={bodyColor} />);
 
-  // Poodle curly fluff — circles on head and body
   if (curly) {
     parts.push(
       <circle key="c1" cx={headX + 1} cy={headY + 1} r="1.2" fill={shadeColor(body, 0.08)} />,
@@ -160,14 +172,14 @@ function renderBody(body, shade, variant) {
 // ——— Ears ———
 function renderEars(body, shade, style) {
   switch (style) {
-    case 'pointy':  // sharp cat ears
+    case 'pointy':
       return (
         <g>
           <polygon points="4,4 5,0 7,4" fill={body} />
           <polygon points="9,4 11,0 12,4" fill={body} />
         </g>
       );
-    case 'tufted':  // big fluffy cat ears (maine coon, persian)
+    case 'tufted':
       return (
         <g>
           <polygon points="3,4 5,-1 7,4" fill={body} />
@@ -176,35 +188,35 @@ function renderEars(body, shade, style) {
           <rect x="11" y="0" width="1" height="1" fill={shadeColor(body, 0.15)} />
         </g>
       );
-    case 'folded':  // scottish fold — curled down
+    case 'folded':
       return (
         <g>
           <rect x="4" y="3" width="2" height="1" fill={shade} />
           <rect x="10" y="3" width="2" height="1" fill={shade} />
         </g>
       );
-    case 'rounded':  // british shorthair — small rounded
+    case 'rounded':
       return (
         <g>
           <rect x="4" y="2" width="2" height="2" fill={body} />
           <rect x="10" y="2" width="2" height="2" fill={body} />
         </g>
       );
-    case 'sharp':  // husky/shiba/corgi/akita — upright triangle dog ears
+    case 'sharp':
       return (
         <g>
           <polygon points="3,4 4,0 6,4" fill={body} />
           <polygon points="10,4 12,0 13,4" fill={body} />
         </g>
       );
-    case 'droop':  // golden/bulldog/dalmatian — floppy
+    case 'droop':
       return (
         <g>
           <rect x="2" y="2" width="2" height="5" fill={shade} />
           <rect x="12" y="2" width="2" height="5" fill={shade} />
         </g>
       );
-    case 'halfup':  // border collie — semi-upright
+    case 'halfup':
       return (
         <g>
           <polygon points="3,4 4,1 5,4" fill={body} />
@@ -218,31 +230,25 @@ function renderEars(body, shade, style) {
   }
 }
 
-// ——— Face overlay (mask / siamese color points) ———
 function renderFace(variant, body) {
   const parts = [];
   if (variant.faceMask) {
-    // Siamese — dark face mask on lower half
     parts.push(
       <rect key="fm" x="5" y="6" width="6" height="2" fill={variant.faceMask} />,
       <rect key="fm2" x="6" y="5" width="4" height="1" fill={variant.faceMask} opacity="0.6" />,
     );
   }
   if (variant.mask) {
-    // Husky — pale chest/face blaze down the middle
     parts.push(
       <rect key="hm1" x="7" y="4" width="2" height="3" fill="#F5F5F5" />,
       <rect key="hm2" x="6" y="7" width="4" height="2" fill="#F5F5F5" opacity="0.85" />,
     );
   }
-  // Nose
   parts.push(<rect key="nose" x="7" y="7" width="2" height="1" fill="#F4A6A6" />);
   return <g>{parts}</g>;
 }
 
-// ——— Eyes ———
-function renderEyes(color, variant) {
-  // Scottish fold has eyes slightly lower / wider-set vibe; most others standard.
+function renderEyes(color, _variant) {
   return (
     <g>
       <rect x="6" y="5" width="1" height="1" fill={color} />
@@ -251,11 +257,9 @@ function renderEyes(color, variant) {
   );
 }
 
-// ——— Body pattern (spots / stripes) ———
 function renderPattern(variant) {
   if (variant.pattern === 'spots') {
     const c = variant.spotColor ?? '#222';
-    // Deterministic scattered spots on torso (y 8-12)
     return (
       <g>
         <rect x="4"  y="8"  width="1" height="1" fill={c} />
@@ -270,12 +274,12 @@ function renderPattern(variant) {
   return null;
 }
 
-// ——— Gun ———
-function renderGun() {
+// 槍：從 pivot 點（身體中心）往右畫出 4 格，由旋轉 transform 帶動槍指向 aim
+function renderGun(px, py) {
   return (
     <g>
-      <rect x="13" y="9" width="3" height="1" fill="#333" />
-      <rect x="16" y="9" width="1" height="1" fill="#222" />
+      <rect x={px} y={py - 0.5} width="4" height="1" fill="#333" />
+      <rect x={px + 4} y={py - 0.5} width="1" height="1" fill="#222" />
     </g>
   );
 }
