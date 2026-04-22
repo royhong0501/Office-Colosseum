@@ -14,6 +14,7 @@ export const CAT_BREEDS = [
     stats: { hp: 80, atk: 50, def: 40, spd: 70, spc: 65 },
     skill: '低空突襲',
     skillDesc: '利用矮小身材閃避後反擊',
+    skillKind: 'dash',
     color: '#D4A574',
   },
   {
@@ -31,6 +32,7 @@ export const CAT_BREEDS = [
     stats: { hp: 90, atk: 45, def: 60, spd: 35, spc: 80 },
     skill: '華麗毛球',
     skillDesc: '甩出華麗毛髮造成範圍傷害',
+    skillKind: 'burst',
     color: '#F5E6D3',
   },
   {
@@ -48,6 +50,7 @@ export const CAT_BREEDS = [
     stats: { hp: 75, atk: 65, def: 35, spd: 80, spc: 55 },
     skill: '尖叫音波',
     skillDesc: '高頻叫聲造成暈眩效果',
+    skillKind: 'strike',
     color: '#C4A882',
   },
   {
@@ -65,6 +68,7 @@ export const CAT_BREEDS = [
     stats: { hp: 95, atk: 40, def: 70, spd: 30, spc: 60 },
     skill: '圓球防禦',
     skillDesc: '蜷成球狀大幅提升防禦',
+    skillKind: 'shield',
     color: '#B8A590',
   },
   {
@@ -82,6 +86,7 @@ export const CAT_BREEDS = [
     stats: { hp: 120, atk: 70, def: 55, spd: 25, spc: 40 },
     skill: '巨爪重擊',
     skillDesc: '以龐大身軀壓制對手',
+    skillKind: 'strike',
     color: '#8B7355',
   },
   {
@@ -99,6 +104,7 @@ export const CAT_BREEDS = [
     stats: { hp: 85, atk: 75, def: 40, spd: 75, spc: 50 },
     skill: '豹紋疾步',
     skillDesc: '野性突進連續攻擊',
+    skillKind: 'dash',
     color: '#C4943A',
   },
   {
@@ -116,6 +122,7 @@ export const CAT_BREEDS = [
     stats: { hp: 100, atk: 35, def: 50, spd: 40, spc: 85 },
     skill: '柔體術',
     skillDesc: '軟綿綿地避開所有攻擊',
+    skillKind: 'heal',
     color: '#E8DDD0',
   },
   {
@@ -133,6 +140,7 @@ export const CAT_BREEDS = [
     stats: { hp: 80, atk: 55, def: 55, spd: 60, spc: 70 },
     skill: '冰霜凝視',
     skillDesc: '冷酷眼神降低對手攻擊',
+    skillKind: 'strike',
     color: '#8BA4B8',
   },
   {
@@ -150,6 +158,7 @@ export const CAT_BREEDS = [
     stats: { hp: 70, atk: 60, def: 30, spd: 85, spc: 90 },
     skill: '神祕詛咒',
     skillDesc: '古埃及詛咒持續掉血',
+    skillKind: 'burst',
     color: '#D4B896',
   },
   {
@@ -167,6 +176,7 @@ export const CAT_BREEDS = [
     stats: { hp: 110, atk: 50, def: 65, spd: 30, spc: 50 },
     skill: '紳士重拳',
     skillDesc: '優雅而有力的一擊',
+    skillKind: 'strike',
     color: '#7B8B9E',
   },
 ];
@@ -187,6 +197,7 @@ export const DOG_BREEDS = [
     stats: { hp: 100, atk: 65, def: 45, spd: 70, spc: 55 },
     skill: '暴風嚎叫',
     skillDesc: '刺耳嚎叫降低敵方速度',
+    skillKind: 'burst',
     color: '#A0B4C8',
   },
   {
@@ -204,6 +215,7 @@ export const DOG_BREEDS = [
     stats: { hp: 110, atk: 55, def: 55, spd: 50, spc: 60 },
     skill: '友善撲擊',
     skillDesc: '熱情擁抱造成傷害並回血',
+    skillKind: 'heal',
     color: '#DAA520',
   },
   {
@@ -221,6 +233,7 @@ export const DOG_BREEDS = [
     stats: { hp: 85, atk: 60, def: 50, spd: 65, spc: 65 },
     skill: 'Doge光線',
     skillDesc: 'Much damage. Very wow.',
+    skillKind: 'strike',
     color: '#E8A840',
   },
   {
@@ -238,6 +251,7 @@ export const DOG_BREEDS = [
     stats: { hp: 90, atk: 50, def: 55, spd: 55, spc: 70 },
     skill: '短腿衝鋒',
     skillDesc: '低重心全力衝撞',
+    skillKind: 'dash',
     color: '#D4923A',
   },
   {
@@ -255,6 +269,7 @@ export const DOG_BREEDS = [
     stats: { hp: 75, atk: 45, def: 40, spd: 75, spc: 90 },
     skill: '華麗旋轉',
     skillDesc: '旋轉跳躍的範圍魔法攻擊',
+    skillKind: 'burst',
     color: '#F0E0F0',
   },
   {
@@ -272,6 +287,7 @@ export const DOG_BREEDS = [
     stats: { hp: 105, atk: 75, def: 60, spd: 55, spc: 35 },
     skill: '戰術壓制',
     skillDesc: '精準攻擊要害部位',
+    skillKind: 'strike',
     color: '#5C4033',
   },
   {
@@ -289,6 +305,7 @@ export const DOG_BREEDS = [
     stats: { hp: 85, atk: 55, def: 50, spd: 85, spc: 80 },
     skill: '牧羊凝視',
     skillDesc: '專注眼神鎖定目標，提升命中與暴擊',
+    skillKind: 'strike',
     color: '#3A3A3A',
   },
   {
@@ -306,6 +323,7 @@ export const DOG_BREEDS = [
     stats: { hp: 130, atk: 65, def: 75, spd: 20, spc: 30 },
     skill: '鐵壁防線',
     skillDesc: '堅不可摧的防禦姿態',
+    skillKind: 'shield',
     color: '#C4A882',
   },
   {
@@ -323,6 +341,7 @@ export const DOG_BREEDS = [
     stats: { hp: 90, atk: 60, def: 45, spd: 80, spc: 50 },
     skill: '斑點亂舞',
     skillDesc: '高速移動產生殘影迷惑敵人',
+    skillKind: 'dash',
     color: '#F5F5F5',
   },
   {
@@ -340,6 +359,7 @@ export const DOG_BREEDS = [
     stats: { hp: 115, atk: 70, def: 65, spd: 40, spc: 45 },
     skill: '忠義一擊',
     skillDesc: '集中全部忠誠的致命一擊',
+    skillKind: 'strike',
     color: '#CD853F',
   },
 ];

@@ -7,7 +7,10 @@ export class Lobby {
     this.nextBotSeq = 1;
   }
   join(socketId, name) {
-    if (this.players.has(socketId)) {
+    const prev = this.players.get(socketId);
+    if (prev) {
+      // 重複 JOIN 是 idempotent：保留 characterId / ready / isHost，只更新顯示名
+      prev.name = name;
       this.broadcast();
       return { ok: true };
     }

@@ -24,14 +24,20 @@ export default function Lobby({ onMatchStart, onBack }) {
 
     const onLobbyState = (data) => setPlayers(data.players ?? []);
     const onMatchStartEvt = (payload) => onMatchStart(payload);
+    const onError = (err) => {
+      console.warn('[server error]', err);
+      alert(`[${err?.code ?? 'error'}] ${err?.msg ?? '未知錯誤'}`);
+    };
 
     socket.on(MSG.LOBBY_STATE, onLobbyState);
     socket.on(MSG.MATCH_START, onMatchStartEvt);
+    socket.on(MSG.ERROR, onError);
 
     return () => {
       socket.off('connect', doJoin);
       socket.off(MSG.LOBBY_STATE, onLobbyState);
       socket.off(MSG.MATCH_START, onMatchStartEvt);
+      socket.off(MSG.ERROR, onError);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -55,6 +61,11 @@ export default function Lobby({ onMatchStart, onBack }) {
 
   const handleRemoveBot = (botId) => {
     socket.emit(MSG.REMOVE_BOT, { botId });
+  };
+
+  const handleBack = () => {
+    socket.emit(MSG.LEAVE);
+    onBack();
   };
 
   const canStart =
@@ -250,7 +261,7 @@ export default function Lobby({ onMatchStart, onBack }) {
             )}
 
             <button
-              onClick={onBack}
+              onClick={handleBack}
               style={{
                 padding: '6px 0', borderRadius: 3, border: `1px solid ${excelColors.cellBorder}`,
                 cursor: 'pointer', background: 'transparent',
@@ -401,7 +412,7 @@ export default function Lobby({ onMatchStart, onBack }) {
           { id: 'lobby', label: '連線大廳' },
         ]}
         active="lobby"
-        onSelect={(id) => { if (id === 'menu') onBack(); }}
+        onSelect={(id) => { if (id === 'menu') handleBack(); }}
       />
       <ExcelStatusBar
         stats={`大廳: ${players.length}/8 人 — ${me.ready ? '已準備' : '尚未準備'}`}

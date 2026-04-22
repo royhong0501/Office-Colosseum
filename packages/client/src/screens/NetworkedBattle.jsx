@@ -58,6 +58,24 @@ export default function NetworkedBattle({ initialState, onEnd }) {
         } else if (e.type === 'eliminated') {
           const name = getCharacterById(snap.players[e.playerId]?.characterId)?.name ?? e.playerId.slice(0, 4);
           setLog(l => [...l.slice(-8), `=ELIMINATED("${name}")`]);
+        } else if (e.type === 'dash_move') {
+          const name = getCharacterById(snap.players[e.playerId]?.characterId)?.name ?? e.playerId.slice(0, 4);
+          setLog(l => [...l.slice(-8), `=DASH("${name}",(${e.from.x},${e.from.y})→(${e.to.x},${e.to.y}))`]);
+          const id = Math.random();
+          setEffects(eff => [...eff, { id, x: e.to.x, y: e.to.y, text: '»»»', color: '#5C8BB2' }]);
+          setTimeout(() => setEffects(eff => eff.filter(x => x.id !== id)), 600);
+        } else if (e.type === 'shield_on') {
+          const name = getCharacterById(snap.players[e.playerId]?.characterId)?.name ?? e.playerId.slice(0, 4);
+          setLog(l => [...l.slice(-8), `=SHIELD_ON("${name}")`]);
+          const id = Math.random();
+          setEffects(eff => [...eff, { id, x: e.at.x, y: e.at.y, text: '盾', color: '#7BA05B' }]);
+          setTimeout(() => setEffects(eff => eff.filter(x => x.id !== id)), 900);
+        } else if (e.type === 'heal') {
+          const name = getCharacterById(snap.players[e.playerId]?.characterId)?.name ?? e.playerId.slice(0, 4);
+          setLog(l => [...l.slice(-8), `=HEAL("${name}") // HP=+${e.amount}`]);
+          const id = Math.random();
+          setEffects(eff => [...eff, { id, x: e.at.x, y: e.at.y, text: `+${e.amount}`, color: '#4A9B5E' }]);
+          setTimeout(() => setEffects(eff => eff.filter(x => x.id !== id)), 800);
         }
       }
     };
