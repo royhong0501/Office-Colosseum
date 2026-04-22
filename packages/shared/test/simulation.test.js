@@ -2,25 +2,31 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createInitialState, applyInput, resolveTick,
-  aliveCount, getWinner, moveCooldownFor,
+  aliveCount, getWinner, moveStepFor,
 } from '../src/simulation.js';
 import {
-  MOVE_COOLDOWN_MS, ATTACK_COOLDOWN_MS,
+  ATTACK_COOLDOWN_MS,
   PROJECTILE_SPEED, PROJECTILE_MAX_DIST,
   SHIELD_DURATION_MS,
+  ARENA_RADIUS, PLAYER_RADIUS,
+  MOVE_STEP, DASH_DISTANCE,
 } from '../src/constants.js';
-import { ALL_CHARACTERS } from '../src/characters.js';
 
-// 用 baseline SPD=60 的 russian_blue 讓 MOVE_COOLDOWN_MS 測試維持 150ms 的語意；
-// 兩隻都是 'strike'，skill 走投射物 fallback，保留原 projectile 測試的預期。
+// russian_blue: spd=60 baseline → moveStep=MOVE_STEP；skillKind='strike'
+// british_shorthair: spd=30，HP 大，當沙包；skillKind='strike'
 const PLAYERS = [
   { id: 'a', characterId: 'russian_blue' },
   { id: 'b', characterId: 'british_shorthair' },
 ];
 
 const fixedRng = () => 0.5;
+const APPROX = 1e-9;
 
-test('createInitialState: 2 players at spawns, full HP, alive, empty projectiles', () => {
+function input({ moveX = 0, moveY = 0, aimAngle = 0, attack = false, skill = false, seq = 1 } = {}) {
+  return { seq, moveX, moveY, aimAngle, attack, skill };
+}
+
+test('createInitialState: 2 players at spawns (圓周分佈), full HP, alive, empty projectiles', () => {
   const s = createInitialState(PLAYERS);
   assert.equal(Object.keys(s.players).length, 2);
   assert.equal(s.phase, 'playing');
@@ -30,108 +36,130 @@ test('createInitialState: 2 players at spawns, full HP, alive, empty projectiles
     assert.ok(p.alive);
     assert.equal(p.hp, p.maxHp);
     assert.equal(p.lastAttackAt, 0);
+    assert.equal(typeof p.facing, 'number');
+  }
+  // spawn 點應在半徑 r=ARENA_RADIUS*0.7 圓周上
+  for (const p of Object.values(s.players)) {
+    const r = Math.hypot(p.x, p.y);
+    assert.ok(Math.abs(r - ARENA_RADIUS * 0.7) < 1e-9, `spawn r=${r} 應該 ≈ ${ARENA_RADIUS * 0.7}`);
   }
 });
 
-test('applyInput: movement respects cooldown', () => {
-  let s = createInitialState(PLAYERS);
-  const before = { ...s.players.a };
-  s = applyInput(s, 'a', { dir: 'right', attack: false, skill: false, seq: 1 }, 1000);
-  assert.equal(s.players.a.x, before.x + 1);
-  s = applyInput(s, 'a', { dir: 'right', attack: false, skill: false, seq: 2 }, 1000 + MOVE_COOLDOWN_MS - 10);
-  assert.equal(s.players.a.x, before.x + 1);
-  s = applyInput(s, 'a', { dir: 'right', attack: false, skill: false, seq: 3 }, 1000 + MOVE_COOLDOWN_MS + 1);
-  assert.equal(s.players.a.x, before.x + 2);
-});
-
-test('applyInput: facing updates from any dir even if movement blocked', () => {
+test('applyInput: 連續移動每 tick 位移 MOVE_STEP（baseline spd=60）', () => {
   let s = createInitialState(PLAYERS);
   s.players.a.x = 0; s.players.a.y = 0;
-  // press left at left edge — no movement but facing should still update
-  s = applyInput(s, 'a', { dir: 'left', seq: 1 }, 1000);
-  assert.equal(s.players.a.facing, 'left');
-  assert.equal(s.players.a.x, 0);
-  // press up at top edge
-  s = applyInput(s, 'a', { dir: 'up', seq: 2 }, 1000 + MOVE_COOLDOWN_MS + 1);
-  assert.equal(s.players.a.facing, 'up');
+  // 朝右移動
+  s = applyInput(s, 'a', input({ moveX: 1 }), 1000);
+  assert.ok(Math.abs(s.players.a.x - MOVE_STEP) < APPROX, `x=${s.players.a.x} should ≈ ${MOVE_STEP}`);
+  s = applyInput(s, 'a', input({ moveX: 1, seq: 2 }), 1033);
+  assert.ok(Math.abs(s.players.a.x - MOVE_STEP * 2) < APPROX);
 });
 
-test('attack: no damage on the same tick (projectile has not traveled yet)', () => {
+test('applyInput: 對角移動單位向量 normalize（不會比單軸更快）', () => {
+  let s = createInitialState(PLAYERS);
+  s.players.a.x = 0; s.players.a.y = 0;
+  s = applyInput(s, 'a', input({ moveX: 1, moveY: 1 }), 1000);
+  const r = Math.hypot(s.players.a.x, s.players.a.y);
+  assert.ok(Math.abs(r - MOVE_STEP) < APPROX, `diagonal step length ${r} 應該 ≈ ${MOVE_STEP}`);
+});
+
+test('applyInput: facing 直接跟隨 aimAngle（弧度）', () => {
+  let s = createInitialState(PLAYERS);
+  s.players.a.x = 0; s.players.a.y = 0;
+  s = applyInput(s, 'a', input({ aimAngle: Math.PI / 2 }), 1000);
+  assert.equal(s.players.a.facing, Math.PI / 2);
+  s = applyInput(s, 'a', input({ aimAngle: -Math.PI, seq: 2 }), 1033);
+  assert.equal(s.players.a.facing, -Math.PI);
+});
+
+test('applyInput: 越界移動被沿圓周 clamp（不會穿牆）', () => {
+  let s = createInitialState(PLAYERS);
+  s.players.a.x = ARENA_RADIUS - 0.6; s.players.a.y = 0;
+  // 連續朝右推進直到撞牆
+  for (let i = 0; i < 20; i++) {
+    s = applyInput(s, 'a', input({ moveX: 1, seq: i + 1 }), 1000 + i * 33);
+  }
+  const r = Math.hypot(s.players.a.x, s.players.a.y);
+  assert.ok(r <= ARENA_RADIUS - PLAYER_RADIUS + APPROX, `貼牆 r=${r} 應 ≤ ${ARENA_RADIUS - PLAYER_RADIUS}`);
+});
+
+test('attack: 同 tick 不造成傷害（投射物才剛 spawn）', () => {
   let s = createInitialState(PLAYERS);
   const bHpBefore = s.players.b.hp;
-  s = applyInput(s, 'a', { attack: true, seq: 1 }, 1000);
+  s = applyInput(s, 'a', input({ attack: true }), 1000);
   assert.equal(s.players.b.hp, bHpBefore);
 });
 
-test('attack: spawns a projectile in facing direction', () => {
+test('attack: 投射物沿 facing 方向生成（速度 = cos/sin(angle) × PROJECTILE_SPEED）', () => {
   let s = createInitialState(PLAYERS);
-  s.players.a.facing = 'right';
-  s = applyInput(s, 'a', { attack: true, seq: 1 }, 1000);
+  s.players.a.x = 0; s.players.a.y = 0;
+  // 朝右 aimAngle=0
+  s = applyInput(s, 'a', input({ aimAngle: 0, attack: true }), 1000);
   assert.equal(s.projectiles.length, 1);
   const proj = s.projectiles[0];
   assert.equal(proj.ownerId, 'a');
   assert.equal(proj.isSkill, false);
-  assert.ok(proj.vx > 0, 'vx should be positive when facing right');
-  assert.equal(proj.vy, 0);
+  assert.ok(Math.abs(proj.vx - PROJECTILE_SPEED) < APPROX, 'vx should equal PROJECTILE_SPEED');
+  assert.ok(Math.abs(proj.vy) < APPROX, 'vy should ≈ 0');
+  // 初始位置在玩家右邊緣（PLAYER_RADIUS + 0.1 = 0.6）
+  assert.ok(Math.abs(proj.x - 0.6) < APPROX);
+  assert.ok(Math.abs(proj.y) < APPROX);
   assert.ok(s.events.some(e => e.type === 'projectile_spawn'));
 });
 
-test('attack: respects ATTACK_COOLDOWN_MS', () => {
+test('attack: 遵守 ATTACK_COOLDOWN_MS', () => {
   let s = createInitialState(PLAYERS);
-  s = applyInput(s, 'a', { attack: true, seq: 1 }, 1000);
+  s = applyInput(s, 'a', input({ attack: true }), 1000);
   assert.equal(s.projectiles.length, 1);
-  s = applyInput(s, 'a', { attack: true, seq: 2 }, 1000 + ATTACK_COOLDOWN_MS - 10);
-  assert.equal(s.projectiles.length, 1, 'second attack during cooldown rejected');
-  s = applyInput(s, 'a', { attack: true, seq: 3 }, 1000 + ATTACK_COOLDOWN_MS + 1);
-  assert.equal(s.projectiles.length, 2, 'attack after cooldown spawns another projectile');
+  s = applyInput(s, 'a', input({ attack: true, seq: 2 }), 1000 + ATTACK_COOLDOWN_MS - 10);
+  assert.equal(s.projectiles.length, 1, '冷卻中第二次 attack 被拒');
+  s = applyInput(s, 'a', input({ attack: true, seq: 3 }), 1000 + ATTACK_COOLDOWN_MS + 1);
+  assert.equal(s.projectiles.length, 2, '冷卻後重新可發射');
 });
 
-test('projectile travels and hits aligned target', () => {
+test('projectile: 直線瞄準命中敵人（圓對圓碰撞）', () => {
   let s = createInitialState(PLAYERS);
-  s.players.a.x = 3; s.players.a.y = 5; s.players.a.facing = 'right';
-  s.players.b.x = 7; s.players.b.y = 5;
+  s.players.a.x = -3; s.players.a.y = 0;
+  s.players.b.x = 3;  s.players.b.y = 0;
   const bHpBefore = s.players.b.hp;
-  s = applyInput(s, 'a', { attack: true, seq: 1 }, 1000);
-  // advance enough ticks so projectile from x=3.5 reaches x=7 (7-3.5)/0.4 = 8.75 → 9 ticks
+  // 朝右瞄準
+  s = applyInput(s, 'a', input({ aimAngle: 0, attack: true }), 1000);
   let now = 1000;
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 30; i++) {
     now += 33;
     const res = resolveTick(s, now);
     s = res.state;
     if (!s.players.b.alive || s.projectiles.length === 0) break;
   }
-  assert.ok(s.players.b.hp < bHpBefore, 'target took damage');
-  assert.equal(s.projectiles.length, 0, 'projectile consumed on hit');
+  assert.ok(s.players.b.hp < bHpBefore, '目標受傷');
+  assert.equal(s.projectiles.length, 0, '投射物命中後消失');
 });
 
-test('projectile misses when target moves aside before arrival', () => {
+test('projectile: 目標中途移開不被命中', () => {
   let s = createInitialState(PLAYERS);
-  s.players.a.x = 3; s.players.a.y = 5; s.players.a.facing = 'right';
-  s.players.b.x = 8; s.players.b.y = 5;
+  s.players.a.x = -3; s.players.a.y = 0;
+  s.players.b.x = 3;  s.players.b.y = 0;
   const bHpBefore = s.players.b.hp;
-  s = applyInput(s, 'a', { attack: true, seq: 1 }, 1000);
-  // move target two rows away before projectile arrives
-  s.players.b.y = 7;
+  s = applyInput(s, 'a', input({ aimAngle: 0, attack: true }), 1000);
+  // 把 b 橫向移開 2 單位（> hit radius）
+  s.players.b = { ...s.players.b, y: 2 };
   let now = 1000;
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 30 && s.projectiles.length > 0; i++) {
     now += 33;
-    const res = resolveTick(s, now);
-    s = res.state;
-    if (s.projectiles.length === 0) break;
+    s = resolveTick(s, now).state;
   }
-  assert.equal(s.players.b.hp, bHpBefore, 'target dodged — no damage');
+  assert.equal(s.players.b.hp, bHpBefore, '閃開了 — 無傷');
 });
 
-test('projectile expires after PROJECTILE_MAX_DIST', () => {
+test('projectile: 超過 PROJECTILE_MAX_DIST 自然消失', () => {
   let s = createInitialState(PLAYERS);
-  s.players.a.x = 0; s.players.a.y = 5; s.players.a.facing = 'right';
-  s.players.b.x = 15; s.players.b.y = 9;  // out of the path
-  s = applyInput(s, 'a', { attack: true, seq: 1 }, 1000);
+  s.players.a.x = -7; s.players.a.y = 0;
+  s.players.b.x = 0;  s.players.b.y = 5;  // 不在射線路徑上
+  s = applyInput(s, 'a', input({ aimAngle: 0, attack: true }), 1000);
   assert.equal(s.projectiles.length, 1);
-  // enough ticks to exceed PROJECTILE_MAX_DIST / PROJECTILE_SPEED
   const ticksNeeded = Math.ceil(PROJECTILE_MAX_DIST / PROJECTILE_SPEED) + 5;
   let now = 1000;
-  let allEvents = [];
+  const allEvents = [];
   for (let i = 0; i < ticksNeeded; i++) {
     now += 33;
     const res = resolveTick(s, now);
@@ -139,11 +167,11 @@ test('projectile expires after PROJECTILE_MAX_DIST', () => {
     allEvents.push(...res.events);
     if (s.projectiles.length === 0) break;
   }
-  assert.equal(s.projectiles.length, 0, 'projectile removed');
-  assert.ok(allEvents.some(e => e.type === 'projectile_expire'), 'expire event emitted');
+  assert.equal(s.projectiles.length, 0, '投射物已移除');
+  assert.ok(allEvents.some(e => e.type === 'projectile_expire'), '發出 expire event');
 });
 
-test('HP=0 → alive=false; aliveCount drops; getWinner returns last', () => {
+test('HP=0 → alive=false; aliveCount 下降；getWinner 回傳最後一人', () => {
   let s = createInitialState(PLAYERS);
   s.players.b.hp = 0;
   const { state } = resolveTick(s, 1000);
@@ -152,43 +180,43 @@ test('HP=0 → alive=false; aliveCount drops; getWinner returns last', () => {
   assert.equal(getWinner(state), 'a');
 });
 
-test('skill respects cooldown (second skill within cooldown rejected)', () => {
-  // russian_blue = strike 瞬發；把 b 放在相鄰格保證第一次 skill 命中
+test('skill: 遵守 SKILL_COOLDOWN_MS（冷卻內第二次 skill 不造成額外傷害）', () => {
+  // russian_blue = strike，把 b 放在近戰範圍內保證第一次命中
   let s = createInitialState(PLAYERS);
-  s.players.a.x = 5; s.players.a.y = 5;
-  s.players.b.x = 6; s.players.b.y = 5;
+  s.players.a.x = 0; s.players.a.y = 0;
+  s.players.b.x = 1; s.players.b.y = 0;
   const bHpStart = s.players.b.hp;
-  s = applyInput(s, 'a', { skill: true, seq: 1 }, 1000, fixedRng);
+  s = applyInput(s, 'a', input({ skill: true }), 1000, fixedRng);
   const hpAfterFirst = s.players.b.hp;
-  assert.ok(hpAfterFirst < bHpStart, 'first skill damaged b');
-  s = applyInput(s, 'a', { skill: true, seq: 2 }, 1001, fixedRng);
-  assert.equal(s.players.b.hp, hpAfterFirst, 'second skill within cooldown rejected (no extra damage)');
+  assert.ok(hpAfterFirst < bHpStart, '第一次 skill 造成傷害');
+  s = applyInput(s, 'a', input({ skill: true, seq: 2 }), 1001, fixedRng);
+  assert.equal(s.players.b.hp, hpAfterFirst, '冷卻中第二次 skill 無額外傷害');
 });
 
-// ---- SPD-based move cooldown ----
+// ---- SPD-based move step ----
 
-test('moveCooldownFor: high SPD → shorter cooldown, low SPD → longer', () => {
-  const cdHigh = moveCooldownFor('sphynx');         // spd=85
-  const cdBase = moveCooldownFor('russian_blue');   // spd=60
-  const cdLow  = moveCooldownFor('bulldog');        // spd=20
-  assert.ok(cdHigh < cdBase, `sphynx(${cdHigh}) should be < baseline(${cdBase})`);
-  assert.ok(cdBase < cdLow,  `baseline(${cdBase}) should be < bulldog(${cdLow})`);
-  assert.equal(cdBase, 150, 'baseline spd=60 → exactly MOVE_COOLDOWN_MS');
+test('moveStepFor: 高 SPD → 大步；低 SPD → 小步；baseline spd=60 → MOVE_STEP', () => {
+  const sHigh = moveStepFor('sphynx');        // spd=85
+  const sBase = moveStepFor('russian_blue');  // spd=60
+  const sLow  = moveStepFor('bulldog');       // spd=20
+  assert.ok(sHigh > sBase, `sphynx(${sHigh}) should be > baseline(${sBase})`);
+  assert.ok(sBase > sLow,  `baseline(${sBase}) should be > bulldog(${sLow})`);
+  assert.ok(Math.abs(sBase - MOVE_STEP) < APPROX, 'baseline spd=60 → exactly MOVE_STEP');
 });
 
 // ---- skillKind: heal ----
 
-test('skillKind heal: restores HP up to maxHp and emits heal event', () => {
+test('skillKind heal: 回復 HP 不超過 maxHp 並發出 heal event', () => {
   let s = createInitialState([
     { id: 'a', characterId: 'ragdoll' },       // kind: heal
     { id: 'b', characterId: 'british_shorthair' },
   ]);
   s.players.a.hp = 10;
   const beforeHp = s.players.a.hp;
-  s = applyInput(s, 'a', { skill: true, seq: 1 }, 1000, fixedRng);
-  assert.ok(s.players.a.hp > beforeHp, 'should heal');
-  assert.ok(s.players.a.hp <= s.players.a.maxHp, 'cap at maxHp');
-  assert.equal(s.projectiles.length, 0, 'heal should NOT spawn a projectile');
+  s = applyInput(s, 'a', input({ skill: true }), 1000, fixedRng);
+  assert.ok(s.players.a.hp > beforeHp, 'HP 上升');
+  assert.ok(s.players.a.hp <= s.players.a.maxHp, '不超過 maxHp');
+  assert.equal(s.projectiles.length, 0, 'heal 不生成投射物');
   const healEvent = s.events.find(e => e.type === 'heal' && e.playerId === 'a');
   assert.ok(healEvent, 'heal event emitted');
   assert.ok(healEvent.amount > 0);
@@ -196,144 +224,153 @@ test('skillKind heal: restores HP up to maxHp and emits heal event', () => {
 
 // ---- skillKind: shield ----
 
-test('skillKind shield: sets shieldedUntil and halves incoming projectile damage', () => {
-  // a 開護盾，b 發投射物；比對跟「無護盾」對照組的傷害差異
+test('skillKind shield: 設定 shieldedUntil 並讓被投射物命中的傷害減半', () => {
   const buildWorld = () => {
     const s = createInitialState([
-      { id: 'a', characterId: 'scottish_fold' },   // kind: shield, spd=30
-      { id: 'b', characterId: 'russian_blue' },    // baseline SPD
+      { id: 'a', characterId: 'scottish_fold' }, // kind: shield
+      { id: 'b', characterId: 'russian_blue' },
     ]);
-    s.players.a.x = 5; s.players.a.y = 5;
-    s.players.b.x = 7; s.players.b.y = 5;
-    s.players.b.facing = 'left';
+    s.players.a.x = 0; s.players.a.y = 0;
+    s.players.b.x = 4; s.players.b.y = 0;
+    s.players.b.facing = Math.PI;                // 朝左瞄準 a
     return s;
   };
 
-  // --- 無護盾對照組 ---
+  // 無護盾對照組
   let control = buildWorld();
   const aHpBefore1 = control.players.a.hp;
-  control = applyInput(control, 'b', { attack: true, seq: 1 }, 1000, fixedRng);
+  control = applyInput(control, 'b', input({ aimAngle: Math.PI, attack: true }), 1000, fixedRng);
   let now = 1000;
-  for (let i = 0; i < 20 && control.projectiles.length > 0; i++) {
+  for (let i = 0; i < 40 && control.projectiles.length > 0; i++) {
     now += 33;
     control = resolveTick(control, now).state;
   }
   const unshieldedDmg = aHpBefore1 - control.players.a.hp;
-  assert.ok(unshieldedDmg > 0, 'control: b should have hit a');
+  assert.ok(unshieldedDmg > 0, '對照：b 應命中 a');
 
-  // --- 有護盾組 ---
+  // 有護盾組
   let s = buildWorld();
-  s = applyInput(s, 'a', { skill: true, seq: 1 }, 1000, fixedRng);
+  s = applyInput(s, 'a', input({ skill: true }), 1000, fixedRng);
   assert.equal(s.players.a.shieldedUntil, 1000 + SHIELD_DURATION_MS);
-  assert.equal(s.projectiles.length, 0, 'shield should NOT spawn a projectile');
+  assert.equal(s.projectiles.length, 0, 'shield 不生成投射物');
   assert.ok(s.events.some(e => e.type === 'shield_on' && e.playerId === 'a'));
 
   const aHpBefore2 = s.players.a.hp;
-  s = applyInput(s, 'b', { attack: true, seq: 2 }, 1000, fixedRng);
+  s = applyInput(s, 'b', input({ aimAngle: Math.PI, attack: true, seq: 2 }), 1000, fixedRng);
   now = 1000;
-  for (let i = 0; i < 20 && s.projectiles.length > 0; i++) {
+  for (let i = 0; i < 40 && s.projectiles.length > 0; i++) {
     now += 33;
     s = resolveTick(s, now).state;
   }
   const shieldedDmg = aHpBefore2 - s.players.a.hp;
-  assert.ok(shieldedDmg > 0, 'shield halves damage, not blocks it');
-  assert.ok(shieldedDmg < unshieldedDmg, `shielded(${shieldedDmg}) should be < unshielded(${unshieldedDmg})`);
+  assert.ok(shieldedDmg > 0, 'shield 是減傷不是完全擋下');
+  assert.ok(shieldedDmg < unshieldedDmg, `shielded(${shieldedDmg}) < unshielded(${unshieldedDmg})`);
 });
 
 // ---- skillKind: strike ----
 
-test('skillKind strike: hits nearest enemy within ATTACK_RANGE only', () => {
-  // russian_blue = strike；b, c 都在 ATTACK_RANGE 內但 strike 只打最近的
+test('skillKind strike: 命中 ATTACK_RANGE 內最近敵人（歐氏距離）', () => {
   let s = createInitialState([
-    { id: 'a', characterId: 'russian_blue' },
+    { id: 'a', characterId: 'russian_blue' },      // strike
     { id: 'b', characterId: 'british_shorthair' },
     { id: 'c', characterId: 'siamese' },
   ]);
-  s.players.a.x = 5; s.players.a.y = 5;
-  s.players.b.x = 6; s.players.b.y = 5;  // distance 1
-  s.players.c.x = 7; s.players.c.y = 5;  // distance 2
+  s.players.a.x = 0; s.players.a.y = 0;
+  s.players.b.x = 1; s.players.b.y = 0;   // dist 1
+  s.players.c.x = 2; s.players.c.y = 0;   // dist 2
   const bBefore = s.players.b.hp;
   const cBefore = s.players.c.hp;
-  s = applyInput(s, 'a', { skill: true, seq: 1 }, 1000, fixedRng);
-  assert.ok(s.players.b.hp < bBefore, 'nearest (b) took damage');
-  assert.equal(s.players.c.hp, cBefore, 'non-nearest (c) unhurt');
-  assert.equal(s.projectiles.length, 0, 'strike does not spawn projectile');
+  s = applyInput(s, 'a', input({ skill: true }), 1000, fixedRng);
+  assert.ok(s.players.b.hp < bBefore, '最近者 b 受傷');
+  assert.equal(s.players.c.hp, cBefore, '非最近者 c 不受傷');
+  assert.equal(s.projectiles.length, 0, 'strike 不生成投射物');
   const damageEvents = s.events.filter(e => e.type === 'damage' && e.sourceId === 'a');
   assert.equal(damageEvents.length, 1);
   assert.equal(damageEvents[0].targetId, 'b');
   assert.equal(damageEvents[0].isSkill, true);
 });
 
-test('skillKind strike: out of ATTACK_RANGE does nothing', () => {
-  let s = createInitialState([
-    { id: 'a', characterId: 'russian_blue' },
-    { id: 'b', characterId: 'british_shorthair' },
-  ]);
+test('skillKind strike: 超出 ATTACK_RANGE 不造成傷害', () => {
+  let s = createInitialState(PLAYERS);
   s.players.a.x = 0; s.players.a.y = 0;
-  s.players.b.x = 5; s.players.b.y = 0;  // distance 5 > ATTACK_RANGE=2
+  s.players.b.x = 5; s.players.b.y = 0;   // dist 5 > 2
   const bBefore = s.players.b.hp;
-  s = applyInput(s, 'a', { skill: true, seq: 1 }, 1000, fixedRng);
-  assert.equal(s.players.b.hp, bBefore, 'no damage when out of range');
+  s = applyInput(s, 'a', input({ skill: true }), 1000, fixedRng);
+  assert.equal(s.players.b.hp, bBefore);
   assert.ok(!s.events.some(e => e.type === 'damage'));
 });
 
 // ---- skillKind: burst ----
 
-test('skillKind burst: AOE hits all enemies within ATTACK_RANGE', () => {
-  // persian = burst
+test('skillKind burst: AOE 命中所有 ATTACK_RANGE 內的敵人', () => {
   let s = createInitialState([
-    { id: 'a', characterId: 'persian' },
+    { id: 'a', characterId: 'persian' },        // burst
     { id: 'b', characterId: 'british_shorthair' },
     { id: 'c', characterId: 'russian_blue' },
     { id: 'd', characterId: 'siamese' },
   ]);
-  s.players.a.x = 5; s.players.a.y = 5;
-  s.players.b.x = 6; s.players.b.y = 5;  // dist 1 ✓
-  s.players.c.x = 5; s.players.c.y = 7;  // dist 2 ✓
-  s.players.d.x = 10; s.players.d.y = 5; // dist 5 ✗
+  s.players.a.x = 0; s.players.a.y = 0;
+  s.players.b.x = 1; s.players.b.y = 0;       // 1 ✓
+  s.players.c.x = 0; s.players.c.y = 1.8;     // 1.8 ✓
+  s.players.d.x = 5; s.players.d.y = 0;       // 5 ✗
   const bBefore = s.players.b.hp;
   const cBefore = s.players.c.hp;
   const dBefore = s.players.d.hp;
-  s = applyInput(s, 'a', { skill: true, seq: 1 }, 1000, fixedRng);
+  s = applyInput(s, 'a', input({ skill: true }), 1000, fixedRng);
   assert.ok(s.players.b.hp < bBefore);
   assert.ok(s.players.c.hp < cBefore);
-  assert.equal(s.players.d.hp, dBefore, 'out-of-range d unhurt');
+  assert.equal(s.players.d.hp, dBefore, '超距者 d 不受傷');
   const damageEvents = s.events.filter(e => e.type === 'damage' && e.sourceId === 'a');
   assert.equal(damageEvents.length, 2);
 });
 
 // ---- skillKind: dash ----
 
-test('skillKind dash: moves DASH_DISTANCE toward enemy and emits dash_move', () => {
-  // munchkin = dash
+test('skillKind dash: 沿 facing 方向瞬間位移 DASH_DISTANCE 並發出 dash_move', () => {
   let s = createInitialState([
-    { id: 'a', characterId: 'munchkin' },
+    { id: 'a', characterId: 'munchkin' },        // dash
     { id: 'b', characterId: 'british_shorthair' },
   ]);
-  s.players.a.x = 2; s.players.a.y = 5;
-  s.players.b.x = 10; s.players.b.y = 5;  // dx=8, dy=0 → dash right
+  s.players.a.x = 0; s.players.a.y = 0;
+  s.players.a.facing = 0;                      // 朝右
+  s.players.b.x = 5; s.players.b.y = 0;
   const startX = s.players.a.x;
-  s = applyInput(s, 'a', { skill: true, seq: 1 }, 1000, fixedRng);
-  assert.equal(s.players.a.x, startX + 3, 'dashed 3 cells right');
-  assert.equal(s.players.a.y, 5, 'y unchanged');
+  s = applyInput(s, 'a', input({ aimAngle: 0, skill: true }), 1000, fixedRng);
+  assert.ok(Math.abs(s.players.a.x - (startX + DASH_DISTANCE)) < APPROX, `dashed ${DASH_DISTANCE}`);
+  assert.ok(Math.abs(s.players.a.y) < APPROX);
   const dashEvent = s.events.find(e => e.type === 'dash_move' && e.playerId === 'a');
   assert.ok(dashEvent);
-  assert.equal(dashEvent.from.x, startX);
-  assert.equal(dashEvent.to.x, startX + 3);
+  assert.ok(Math.abs(dashEvent.from.x - startX) < APPROX);
+  assert.ok(Math.abs(dashEvent.to.x - (startX + DASH_DISTANCE)) < APPROX);
 });
 
-test('skillKind dash: stops when blocked by enemy and damages adjacent', () => {
-  // munchkin = dash；b 緊鄰 → dash 第一步就被擋，留在原地但 b 受傷
+test('skillKind dash: 落點相鄰敵人吃接觸傷害', () => {
   let s = createInitialState([
     { id: 'a', characterId: 'munchkin' },
     { id: 'b', characterId: 'british_shorthair' },
   ]);
-  s.players.a.x = 5; s.players.a.y = 5;
-  s.players.b.x = 6; s.players.b.y = 5;  // dx=1, dy=0 → dash right → 第一步 nx=6 blocked
+  // b 正好落在 dash 終點附近
+  s.players.a.x = 0; s.players.a.y = 0;
+  s.players.a.facing = 0;
+  s.players.b.x = DASH_DISTANCE + 0.3; s.players.b.y = 0;
   const bBefore = s.players.b.hp;
-  s = applyInput(s, 'a', { skill: true, seq: 1 }, 1000, fixedRng);
-  assert.equal(s.players.a.x, 5, 'dash blocked, a stays at 5');
-  assert.ok(s.players.b.hp < bBefore, 'b (adjacent) takes dash contact damage');
-  // blocked 零移動所以不該發 dash_move
-  assert.ok(!s.events.some(e => e.type === 'dash_move'), 'zero-move dash emits no dash_move event');
+  s = applyInput(s, 'a', input({ aimAngle: 0, skill: true }), 1000, fixedRng);
+  assert.ok(s.players.b.hp < bBefore, 'b 在 dash 落點相鄰受傷');
+});
+
+test('skillKind dash: 遇到圓形邊界會沿圓周 clamp', () => {
+  let s = createInitialState(PLAYERS);
+  s.players.a.x = ARENA_RADIUS - 1; s.players.a.y = 0;
+  s.players.a.facing = 0;
+  // munchkin 才是 dash kind，換角色
+  s = createInitialState([
+    { id: 'a', characterId: 'munchkin' },
+    { id: 'b', characterId: 'british_shorthair' },
+  ]);
+  s.players.a.x = ARENA_RADIUS - 1; s.players.a.y = 0;
+  s.players.a.facing = 0;
+  s.players.b.x = -5; s.players.b.y = 0;
+  s = applyInput(s, 'a', input({ aimAngle: 0, skill: true }), 1000, fixedRng);
+  const r = Math.hypot(s.players.a.x, s.players.a.y);
+  assert.ok(r <= ARENA_RADIUS - PLAYER_RADIUS + APPROX, `落點 r=${r} 應 ≤ ${ARENA_RADIUS - PLAYER_RADIUS}`);
 });

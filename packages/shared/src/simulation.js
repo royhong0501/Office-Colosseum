@@ -1,21 +1,14 @@
-import { calculateDamage, clamp, manhattan } from './math.js';
+import { calculateDamage, clamp, euclidean } from './math.js';
 import { getCharacterById } from './characters.js';
 import { getSpawnPositions } from './spawns.js';
 import {
-  MOVE_COOLDOWN_MS, SKILL_COOLDOWN_MS, ATTACK_COOLDOWN_MS,
+  SKILL_COOLDOWN_MS, ATTACK_COOLDOWN_MS,
   PROJECTILE_SPEED, PROJECTILE_MAX_DIST,
-  ARENA_COLS, ARENA_ROWS,
-  BASELINE_SPD, MOVE_COOLDOWN_MIN_MS, MOVE_COOLDOWN_MAX_MS,
+  ARENA_RADIUS, PLAYER_RADIUS, PROJECTILE_RADIUS,
+  BASELINE_SPD, MOVE_STEP, MOVE_STEP_MIN, MOVE_STEP_MAX,
   SHIELD_DURATION_MS, SHIELD_DAMAGE_MULT, HEAL_PCT,
   ATTACK_RANGE, BURST_MULT, DASH_DISTANCE, DASH_DMG_MULT,
 } from './constants.js';
-
-const DIRS = {
-  up:    { dx: 0,  dy: -1 },
-  down:  { dx: 0,  dy:  1 },
-  left:  { dx: -1, dy:  0 },
-  right: { dx: 1,  dy:  0 },
-};
 
 export function createInitialState(players) {
   const spawns = getSpawnPositions(players.length);
@@ -31,8 +24,8 @@ export function createInitialState(players) {
       x: spawns[i].x, y: spawns[i].y,
       hp: char.stats.hp, maxHp: char.stats.hp,
       alive: true, paused: false,
-      skillCdUntil: 0, lastMoveAt: 0, lastAttackAt: 0,
-      facing: 'right',
+      skillCdUntil: 0, lastAttackAt: 0,
+      facing: 0,
       shieldedUntil: 0,
     };
   });
@@ -45,14 +38,11 @@ function clonePlayers(players) {
   return out;
 }
 
-// SPD 越高移動冷卻越短；baseline spd=60 → MOVE_COOLDOWN_MS=150ms，clamp 到 [80, 300]
-export function moveCooldownFor(characterId) {
+// SPD 越高每 tick 位移越大；baseline spd=60 → MOVE_STEP=0.15，clamp 到 [0.08, 0.30]
+export function moveStepFor(characterId) {
   const char = getCharacterById(characterId);
   const spd = char?.stats?.spd ?? BASELINE_SPD;
-  return clamp(
-    Math.round(MOVE_COOLDOWN_MS * BASELINE_SPD / Math.max(spd, 1)),
-    MOVE_COOLDOWN_MIN_MS, MOVE_COOLDOWN_MAX_MS,
-  );
+  return clamp(MOVE_STEP * spd / BASELINE_SPD, MOVE_STEP_MIN, MOVE_STEP_MAX);
 }
 
 // ---- Melee skill helpers（strike / burst / dash 走瞬發判定、不走投射物） ----
@@ -62,7 +52,7 @@ function nearestEnemy(players, myId) {
   let best = null, bestD = Infinity;
   for (const other of Object.values(players)) {
     if (other.id === myId || !other.alive) continue;
-    const d = manhattan(me, other);
+    const d = euclidean(me, other);
     if (d < bestD) { bestD = d; best = other; }
   }
   return best ? { target: best, distance: bestD } : null;
@@ -88,7 +78,7 @@ function skillStrike(players, me, now, events, rng) {
   if (!near || near.distance > ATTACK_RANGE) return;
   const atkChar = getCharacterById(me.characterId);
   const defChar = getCharacterById(near.target.characterId);
-  const rawDmg = calculateDamage(atkChar, defChar, true, rng); // skillMult default 1.5x
+  const rawDmg = calculateDamage(atkChar, defChar, true, rng);
   const final = applyShieldedDamage(near.target, rawDmg, now);
   near.target.hp = Math.max(0, near.target.hp - final);
   emitSkillDamage(events, me.id, near.target, final);
@@ -98,7 +88,7 @@ function skillBurst(players, me, now, events, rng) {
   const atkChar = getCharacterById(me.characterId);
   for (const other of Object.values(players)) {
     if (other.id === me.id || !other.alive) continue;
-    if (manhattan(me, other) > ATTACK_RANGE) continue;
+    if (euclidean(me, other) > ATTACK_RANGE) continue;
     const defChar = getCharacterById(other.characterId);
     const rawDmg = calculateDamage(atkChar, defChar, true, rng, BURST_MULT);
     const final = applyShieldedDamage(other, rawDmg, now);
@@ -108,46 +98,35 @@ function skillBurst(players, me, now, events, rng) {
 }
 
 function skillDash(players, me, now, events, rng) {
-  // 衝刺方向：朝最近敵人差量較大的那一軸；無敵人就依 facing
-  const near = nearestEnemy(players, me.id);
-  let dir;
-  if (near) {
-    const ex = near.target.x - me.x;
-    const ey = near.target.y - me.y;
-    if (Math.abs(ex) >= Math.abs(ey)) {
-      dir = ex >= 0 ? DIRS.right : DIRS.left;
-    } else {
-      dir = ey >= 0 ? DIRS.down : DIRS.up;
-    }
-  } else {
-    dir = DIRS[me.facing] ?? DIRS.right;
-  }
-
+  // 衝刺方向：沿玩家 facing 一次性位移 DASH_DISTANCE 世界單位，碰邊界沿圓周 clamp
+  const dx = Math.cos(me.facing);
+  const dy = Math.sin(me.facing);
   const fromX = me.x, fromY = me.y;
-  for (let i = 0; i < DASH_DISTANCE; i++) {
-    const nx = me.x + dir.dx;
-    const ny = me.y + dir.dy;
-    if (nx < 0 || nx >= ARENA_COLS || ny < 0 || ny >= ARENA_ROWS) break;
-    const blocked = Object.values(players).some(
-      p => p.id !== me.id && p.alive && p.x === nx && p.y === ny,
-    );
-    if (blocked) break;
-    me.x = nx; me.y = ny;
+  let nx = me.x + dx * DASH_DISTANCE;
+  let ny = me.y + dy * DASH_DISTANCE;
+  const maxR = ARENA_RADIUS - PLAYER_RADIUS;
+  const r2 = nx * nx + ny * ny;
+  if (r2 > maxR * maxR) {
+    const r = Math.sqrt(r2);
+    nx = (nx / r) * maxR;
+    ny = (ny / r) * maxR;
   }
-  if (me.x !== fromX || me.y !== fromY) {
+  me.x = nx; me.y = ny;
+  if (fromX !== nx || fromY !== ny) {
     events.push({
       type: 'dash_move',
       playerId: me.id,
       from: { x: fromX, y: fromY },
-      to: { x: me.x, y: me.y },
+      to: { x: nx, y: ny },
     });
   }
 
-  // 落點相鄰格（manhattan ≤ 1）的敵人受接觸傷害
+  // 落點相鄰敵人（歐氏距離 ≤ PLAYER_RADIUS*2 + 0.2 = 1.2）受接觸傷害
+  const contactR = PLAYER_RADIUS * 2 + 0.2;
   const atkChar = getCharacterById(me.characterId);
   for (const other of Object.values(players)) {
     if (other.id === me.id || !other.alive) continue;
-    if (manhattan(me, other) > 1) continue;
+    if (euclidean(me, other) > contactR) continue;
     const defChar = getCharacterById(other.characterId);
     const rawDmg = calculateDamage(atkChar, defChar, true, rng, DASH_DMG_MULT);
     const final = applyShieldedDamage(other, rawDmg, now);
@@ -157,17 +136,19 @@ function skillDash(players, me, now, events, rng) {
 }
 
 function spawnProjectile(ctx, shooter, isSkill, now, events) {
-  const { dx, dy } = DIRS[shooter.facing] ?? DIRS.right;
+  const angle = shooter.facing;
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
   const id = ctx.nextProjectileId++;
   const proj = {
     id,
     ownerId: shooter.id,
     isSkill,
-    x: shooter.x + dx * 0.5,
-    y: shooter.y + dy * 0.5,
+    x: shooter.x + dx * (PLAYER_RADIUS + 0.1),
+    y: shooter.y + dy * (PLAYER_RADIUS + 0.1),
     vx: dx * PROJECTILE_SPEED,
     vy: dy * PROJECTILE_SPEED,
-    facing: shooter.facing,
+    angle,
     traveled: 0,
     spawnedAt: now,
   };
@@ -176,7 +157,7 @@ function spawnProjectile(ctx, shooter, isSkill, now, events) {
     type: 'projectile_spawn',
     id, ownerId: shooter.id,
     x: proj.x, y: proj.y,
-    facing: shooter.facing,
+    angle,
     isSkill,
   });
 }
@@ -191,15 +172,27 @@ export function applyInput(state, playerId, input, now, rng = Math.random) {
   const events = [];
   const ctx = { projectiles, nextProjectileId: state.nextProjectileId ?? 1 };
 
-  // Facing: any direction key updates facing even if movement is blocked
-  if (input.dir && DIRS[input.dir]) {
-    me.facing = input.dir;
-    if (now - me.lastMoveAt >= moveCooldownFor(me.characterId)) {
-      const { dx, dy } = DIRS[input.dir];
-      const nx = me.x + dx, ny = me.y + dy;
-      if (nx >= 0 && nx < ARENA_COLS && ny >= 0 && ny < ARENA_ROWS) {
-        me.x = nx; me.y = ny; me.lastMoveAt = now;
-      }
+  // Facing 每 tick 由滑鼠 aim 更新（弧度）
+  if (typeof input.aimAngle === 'number' && Number.isFinite(input.aimAngle)) {
+    me.facing = input.aimAngle;
+  }
+
+  // 連續移動：WASD 推導的單位向量 + SPD 縮放
+  const mx = input.moveX ?? 0;
+  const my = input.moveY ?? 0;
+  const mag = Math.hypot(mx, my);
+  if (mag > 0) {
+    const step = moveStepFor(me.characterId);
+    const nx = me.x + (mx / mag) * step;
+    const ny = me.y + (my / mag) * step;
+    const maxR = ARENA_RADIUS - PLAYER_RADIUS;
+    const r2 = nx * nx + ny * ny;
+    if (r2 <= maxR * maxR) {
+      me.x = nx; me.y = ny;
+    } else {
+      const r = Math.sqrt(r2);
+      me.x = (nx / r) * maxR;
+      me.y = (ny / r) * maxR;
     }
   }
 
@@ -228,7 +221,6 @@ export function applyInput(state, playerId, input, now, rng = Math.random) {
     } else if (kind === 'dash') {
       skillDash(players, me, now, events, rng);
     } else {
-      // 未定義 skillKind → 保底走投射物
       spawnProjectile(ctx, me, true, now, events);
     }
     me.skillCdUntil = now + SKILL_COOLDOWN_MS;
@@ -247,21 +239,22 @@ export function resolveTick(state, now) {
   const players = clonePlayers(state.players);
   const events = [];
   const survivors = [];
+  const hitR2 = (PLAYER_RADIUS + PROJECTILE_RADIUS) ** 2;
+  const arenaR2 = ARENA_RADIUS * ARENA_RADIUS;
 
   for (const proj of state.projectiles ?? []) {
     const nx = proj.x + proj.vx;
     const ny = proj.y + proj.vy;
     const traveled = proj.traveled + PROJECTILE_SPEED;
 
-    if (nx < 0 || nx >= ARENA_COLS || ny < 0 || ny >= ARENA_ROWS
-        || traveled > PROJECTILE_MAX_DIST) {
+    if (nx * nx + ny * ny > arenaR2 || traveled > PROJECTILE_MAX_DIST) {
       events.push({ type: 'projectile_expire', id: proj.id });
       continue;
     }
 
-    const cx = Math.round(nx), cy = Math.round(ny);
     const hit = Object.values(players).find(
-      pl => pl.alive && pl.id !== proj.ownerId && pl.x === cx && pl.y === cy
+      pl => pl.alive && pl.id !== proj.ownerId
+        && (pl.x - nx) * (pl.x - nx) + (pl.y - ny) * (pl.y - ny) <= hitR2
     );
     if (hit) {
       const shooter = players[proj.ownerId];

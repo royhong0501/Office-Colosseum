@@ -5,7 +5,7 @@ import { PROJECTILE_MAX_DIST } from '@office-colosseum/shared';
  * @param {object} state - GameState from shared/simulation.js
  * @param {string} botId - 這個 bot 的 player id
  * @param {number} now - absolute ms timestamp
- * @returns {{ seq: number, dir: string | null, attack: boolean, skill: boolean }}
+ * @returns {{ seq: number, moveX: number, moveY: number, aimAngle: number, attack: boolean, skill: boolean }}
  */
 export function decideBotInput(state, botId, now) {
   const me = state.players[botId];
@@ -16,47 +16,44 @@ export function decideBotInput(state, botId, now) {
 
   const dx = target.x - me.x;
   const dy = target.y - me.y;
-
-  // Case 2: 對齊（dx===0 or dy===0，且不是同格）
-  if ((dx === 0) !== (dy === 0)) {
-    const dir = dx === 0
-      ? (dy > 0 ? 'down' : 'up')
-      : (dx > 0 ? 'right' : 'left');
-    const dist = Math.abs(dx) + Math.abs(dy);  // 其中一個是 0
-    if (dist <= PROJECTILE_MAX_DIST) {
-      return { seq: 0, dir, attack: true, skill: true };
-    } else {
-      return { seq: 0, dir, attack: false, skill: false };
-    }
+  const dist = Math.hypot(dx, dy);
+  // 同點：保持當前 facing 盲射
+  if (dist === 0) {
+    return { seq: 0, moveX: 0, moveY: 0, aimAngle: me.facing ?? 0, attack: true, skill: true };
   }
 
-  // Case 3: 未對齊 — 縮較小軸（tie 選橫軸）
-  if (dx !== 0 && dy !== 0) {
-    const dir = Math.abs(dx) <= Math.abs(dy)
-      ? (dx > 0 ? 'right' : 'left')
-      : (dy > 0 ? 'down' : 'up');
-    return { seq: 0, dir, attack: false, skill: false };
+  const aimAngle = Math.atan2(dy, dx);
+
+  // 射程內：站住不動、瞄準、開火 + 技能
+  if (dist <= PROJECTILE_MAX_DIST) {
+    return { seq: 0, moveX: 0, moveY: 0, aimAngle, attack: true, skill: true };
   }
 
-  // Case 1: 同格（dx===0 && dy===0，無碰撞系統造成的罕見狀況）
-  return { seq: 0, dir: null, attack: true, skill: true };
+  // 射程外：朝敵人直線走，不開火（不管投射物也不閃避，保持 v1 簡單）
+  return {
+    seq: 0,
+    moveX: dx / dist,
+    moveY: dy / dist,
+    aimAngle,
+    attack: false,
+    skill: false,
+  };
 }
 
 function idle() {
-  return { seq: 0, dir: null, attack: false, skill: false };
+  return { seq: 0, moveX: 0, moveY: 0, aimAngle: 0, attack: false, skill: false };
 }
 
 function findNearestEnemy(state, selfId) {
   const me = state.players[selfId];
   if (!me) return null;
-  let best = null, bestDist = Infinity;
-  // tie-break 用 id 字串排序（確定性）
+  let best = null, bestD2 = Infinity;
   const candidates = Object.values(state.players)
     .filter(p => p.id !== selfId && p.alive)
     .sort((a, b) => a.id.localeCompare(b.id));
   for (const p of candidates) {
-    const d = Math.abs(p.x - me.x) + Math.abs(p.y - me.y);
-    if (d < bestDist) { bestDist = d; best = p; }
+    const d2 = (p.x - me.x) ** 2 + (p.y - me.y) ** 2;
+    if (d2 < bestD2) { bestD2 = d2; best = p; }
   }
   return best;
 }
