@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test *)",
+      "Bash(/c/Users/PC/.fly/bin/fly.exe deploy *)",
+      "Bash(npm run *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(grep *)",
+      "Bash(node *)",
+      "Bash(echo \"Server exit code: $?\")",
+      "Bash(lsof -ti:3000)",
+      "Bash(xargs kill *)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill *)",
+      "Bash(fly version *)",
+      "Bash(fly auth *)",
+      "Bash(fly status *)",
+      "Bash(fly deploy *)"
+    ]
+  }
+}
