@@ -4,7 +4,7 @@ import { getSpawnPositions } from './spawns.js';
 import {
   SKILL_COOLDOWN_MS, ATTACK_COOLDOWN_MS,
   PROJECTILE_SPEED, PROJECTILE_MAX_DIST,
-  ARENA_RADIUS, PLAYER_RADIUS, PROJECTILE_RADIUS,
+  ARENA_WIDTH, ARENA_HEIGHT, PLAYER_RADIUS, PROJECTILE_RADIUS,
   BASELINE_SPD, MOVE_STEP, MOVE_STEP_MIN, MOVE_STEP_MAX,
   SHIELD_DURATION_MS, SHIELD_DAMAGE_MULT, HEAL_PCT,
   ATTACK_RANGE, BURST_MULT, DASH_DISTANCE, DASH_DMG_MULT,
@@ -98,19 +98,16 @@ function skillBurst(players, me, now, events, rng) {
 }
 
 function skillDash(players, me, now, events, rng) {
-  // 衝刺方向：沿玩家 facing 一次性位移 DASH_DISTANCE 世界單位，碰邊界沿圓周 clamp
+  // 衝刺方向：沿玩家 facing 一次性位移 DASH_DISTANCE 世界單位，碰矩形邊界軸向 clamp
   const dx = Math.cos(me.facing);
   const dy = Math.sin(me.facing);
   const fromX = me.x, fromY = me.y;
   let nx = me.x + dx * DASH_DISTANCE;
   let ny = me.y + dy * DASH_DISTANCE;
-  const maxR = ARENA_RADIUS - PLAYER_RADIUS;
-  const r2 = nx * nx + ny * ny;
-  if (r2 > maxR * maxR) {
-    const r = Math.sqrt(r2);
-    nx = (nx / r) * maxR;
-    ny = (ny / r) * maxR;
-  }
+  const maxX = ARENA_WIDTH / 2 - PLAYER_RADIUS;
+  const maxY = ARENA_HEIGHT / 2 - PLAYER_RADIUS;
+  nx = clamp(nx, -maxX, maxX);
+  ny = clamp(ny, -maxY, maxY);
   me.x = nx; me.y = ny;
   if (fromX !== nx || fromY !== ny) {
     events.push({
@@ -185,15 +182,10 @@ export function applyInput(state, playerId, input, now, rng = Math.random) {
     const step = moveStepFor(me.characterId);
     const nx = me.x + (mx / mag) * step;
     const ny = me.y + (my / mag) * step;
-    const maxR = ARENA_RADIUS - PLAYER_RADIUS;
-    const r2 = nx * nx + ny * ny;
-    if (r2 <= maxR * maxR) {
-      me.x = nx; me.y = ny;
-    } else {
-      const r = Math.sqrt(r2);
-      me.x = (nx / r) * maxR;
-      me.y = (ny / r) * maxR;
-    }
+    const maxX = ARENA_WIDTH / 2 - PLAYER_RADIUS;
+    const maxY = ARENA_HEIGHT / 2 - PLAYER_RADIUS;
+    me.x = clamp(nx, -maxX, maxX);
+    me.y = clamp(ny, -maxY, maxY);
   }
 
   if (input.attack && now - me.lastAttackAt >= ATTACK_COOLDOWN_MS) {
@@ -240,14 +232,15 @@ export function resolveTick(state, now) {
   const events = [];
   const survivors = [];
   const hitR2 = (PLAYER_RADIUS + PROJECTILE_RADIUS) ** 2;
-  const arenaR2 = ARENA_RADIUS * ARENA_RADIUS;
+  const halfW = ARENA_WIDTH / 2;
+  const halfH = ARENA_HEIGHT / 2;
 
   for (const proj of state.projectiles ?? []) {
     const nx = proj.x + proj.vx;
     const ny = proj.y + proj.vy;
     const traveled = proj.traveled + PROJECTILE_SPEED;
 
-    if (nx * nx + ny * ny > arenaR2 || traveled > PROJECTILE_MAX_DIST) {
+    if (nx < -halfW || nx > halfW || ny < -halfH || ny > halfH || traveled > PROJECTILE_MAX_DIST) {
       events.push({ type: 'projectile_expire', id: proj.id });
       continue;
     }

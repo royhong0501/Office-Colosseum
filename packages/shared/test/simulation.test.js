@@ -8,7 +8,7 @@ import {
   ATTACK_COOLDOWN_MS,
   PROJECTILE_SPEED, PROJECTILE_MAX_DIST,
   SHIELD_DURATION_MS,
-  ARENA_RADIUS, PLAYER_RADIUS,
+  ARENA_WIDTH, ARENA_HEIGHT, PLAYER_RADIUS,
   MOVE_STEP, DASH_DISTANCE,
 } from '../src/constants.js';
 
@@ -26,7 +26,7 @@ function input({ moveX = 0, moveY = 0, aimAngle = 0, attack = false, skill = fal
   return { seq, moveX, moveY, aimAngle, attack, skill };
 }
 
-test('createInitialState: 2 players at spawns (圓周分佈), full HP, alive, empty projectiles', () => {
+test('createInitialState: 2 players at spawns (橢圓分佈), full HP, alive, empty projectiles', () => {
   const s = createInitialState(PLAYERS);
   assert.equal(Object.keys(s.players).length, 2);
   assert.equal(s.phase, 'playing');
@@ -38,10 +38,12 @@ test('createInitialState: 2 players at spawns (圓周分佈), full HP, alive, em
     assert.equal(p.lastAttackAt, 0);
     assert.equal(typeof p.facing, 'number');
   }
-  // spawn 點應在半徑 r=ARENA_RADIUS*0.7 圓周上
+  // spawn 點應在內縮 0.4× 邊界的橢圓上
+  const rx = ARENA_WIDTH * 0.4;
+  const ry = ARENA_HEIGHT * 0.4;
   for (const p of Object.values(s.players)) {
-    const r = Math.hypot(p.x, p.y);
-    assert.ok(Math.abs(r - ARENA_RADIUS * 0.7) < 1e-9, `spawn r=${r} 應該 ≈ ${ARENA_RADIUS * 0.7}`);
+    const norm = (p.x / rx) ** 2 + (p.y / ry) ** 2;
+    assert.ok(Math.abs(norm - 1) < 1e-9, `spawn (${p.x},${p.y}) 應落在 rx=${rx},ry=${ry} 的橢圓上`);
   }
 });
 
@@ -72,15 +74,16 @@ test('applyInput: facing 直接跟隨 aimAngle（弧度）', () => {
   assert.equal(s.players.a.facing, -Math.PI);
 });
 
-test('applyInput: 越界移動被沿圓周 clamp（不會穿牆）', () => {
+test('applyInput: 越界移動被軸向 clamp（不會穿牆）', () => {
   let s = createInitialState(PLAYERS);
-  s.players.a.x = ARENA_RADIUS - 0.6; s.players.a.y = 0;
+  s.players.a.x = ARENA_WIDTH / 2 - 0.6; s.players.a.y = 0;
   // 連續朝右推進直到撞牆
   for (let i = 0; i < 20; i++) {
     s = applyInput(s, 'a', input({ moveX: 1, seq: i + 1 }), 1000 + i * 33);
   }
-  const r = Math.hypot(s.players.a.x, s.players.a.y);
-  assert.ok(r <= ARENA_RADIUS - PLAYER_RADIUS + APPROX, `貼牆 r=${r} 應 ≤ ${ARENA_RADIUS - PLAYER_RADIUS}`);
+  const maxX = ARENA_WIDTH / 2 - PLAYER_RADIUS;
+  assert.ok(s.players.a.x <= maxX + APPROX, `貼右牆 x=${s.players.a.x} 應 ≤ ${maxX}`);
+  assert.ok(Math.abs(s.players.a.y) < APPROX, 'y 不該偏移');
 });
 
 test('attack: 同 tick 不造成傷害（投射物才剛 spawn）', () => {
@@ -358,19 +361,17 @@ test('skillKind dash: 落點相鄰敵人吃接觸傷害', () => {
   assert.ok(s.players.b.hp < bBefore, 'b 在 dash 落點相鄰受傷');
 });
 
-test('skillKind dash: 遇到圓形邊界會沿圓周 clamp', () => {
-  let s = createInitialState(PLAYERS);
-  s.players.a.x = ARENA_RADIUS - 1; s.players.a.y = 0;
-  s.players.a.facing = 0;
-  // munchkin 才是 dash kind，換角色
-  s = createInitialState([
+test('skillKind dash: 遇到矩形邊界會軸向 clamp', () => {
+  // munchkin 才是 dash kind
+  let s = createInitialState([
     { id: 'a', characterId: 'munchkin' },
     { id: 'b', characterId: 'british_shorthair' },
   ]);
-  s.players.a.x = ARENA_RADIUS - 1; s.players.a.y = 0;
+  s.players.a.x = ARENA_WIDTH / 2 - 1; s.players.a.y = 0;
   s.players.a.facing = 0;
   s.players.b.x = -5; s.players.b.y = 0;
   s = applyInput(s, 'a', input({ aimAngle: 0, skill: true }), 1000, fixedRng);
-  const r = Math.hypot(s.players.a.x, s.players.a.y);
-  assert.ok(r <= ARENA_RADIUS - PLAYER_RADIUS + APPROX, `落點 r=${r} 應 ≤ ${ARENA_RADIUS - PLAYER_RADIUS}`);
+  const maxX = ARENA_WIDTH / 2 - PLAYER_RADIUS;
+  assert.ok(s.players.a.x <= maxX + APPROX, `落點 x=${s.players.a.x} 應 ≤ ${maxX}`);
+  assert.ok(Math.abs(s.players.a.y) < APPROX);
 });

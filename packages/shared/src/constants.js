@@ -1,5 +1,7 @@
-// 世界幾何：圓形競技場，原點 (0,0)，浮點座標
-export const ARENA_RADIUS = 8;
+// 世界幾何：矩形競技場，中心在 (0,0)，浮點座標。
+// 16:9 比例，邊界：-ARENA_WIDTH/2 ≤ x ≤ ARENA_WIDTH/2、-ARENA_HEIGHT/2 ≤ y ≤ ARENA_HEIGHT/2
+export const ARENA_WIDTH = 24;
+export const ARENA_HEIGHT = 13.5;
 export const PLAYER_RADIUS = 0.5;
 export const PROJECTILE_RADIUS = 0.2;
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ARENA_RADIUS } from '@office-colosseum/shared';
+import { ARENA_WIDTH, ARENA_HEIGHT } from '@office-colosseum/shared';
 
 // 滑鼠 + WASD 混合輸入：
 //   WASD / 方向鍵 → moveX/moveY 單位向量（連續移動）
@@ -29,10 +29,12 @@ export function useInputCapture(arenaRef, selfPosRef) {
 
     const onMouseMove = (e) => {
       const rect = arena.getBoundingClientRect();
-      const size = Math.min(rect.width, rect.height);
-      if (size <= 0) return;
-      // 畫布以中心為原點，ARENA_RADIUS 對應到 size/2 的半徑
-      const scale = size / (2 * ARENA_RADIUS);
+      if (rect.width <= 0 || rect.height <= 0) return;
+      // SVG 用 preserveAspectRatio="xMidYMid meet" → viewBox 等比例置中填入 rect。
+      // 以較緊的軸做 scale 與 letterbox 偏移，確保 world (0,0) 對應螢幕中心、邊界與 viewBox 同步。
+      const scaleX = rect.width / ARENA_WIDTH;
+      const scaleY = rect.height / ARENA_HEIGHT;
+      const scale = Math.min(scaleX, scaleY);
       mouseWorld.current.x = (e.clientX - rect.left - rect.width / 2) / scale;
       mouseWorld.current.y = (e.clientY - rect.top - rect.height / 2) / scale;
     };
