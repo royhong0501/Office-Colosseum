@@ -8,7 +8,10 @@ import {
   BASELINE_SPD, MOVE_STEP, MOVE_STEP_MIN, MOVE_STEP_MAX,
   SHIELD_DURATION_BASE_MS, SHIELD_SPC_MULT_MS, SHIELD_DAMAGE_MULT,
   HEAL_PCT, HEAL_SPC_MULT,
-  ATTACK_RANGE, BURST_MULT, DASH_DISTANCE, DASH_DMG_MULT,
+  DASH_DISTANCE, DASH_DMG_MULT,
+  STRIKE_RECOIL_DIST,
+  BURST_BUFF_DURATION_MS, BURST_BUFF_MULT,
+  HEAL_PASSIVE_THRESHOLD, HEAL_PASSIVE_CD_MS,
 } from './constants.js';
 
 export function createInitialState(players) {
@@ -28,6 +31,8 @@ export function createInitialState(players) {
       skillCdUntil: 0, lastAttackAt: 0,
       facing: 0,
       shieldedUntil: 0,
+      speedBuffUntil: 0,
+      healPassiveCdUntil: 0,
     };
   });
   return state;
@@ -46,18 +51,7 @@ export function moveStepFor(characterId) {
   return clamp(MOVE_STEP * spd / BASELINE_SPD, MOVE_STEP_MIN, MOVE_STEP_MAX);
 }
 
-// ---- Melee skill helpers（strike / burst / dash 走瞬發判定、不走投射物） ----
-
-function nearestEnemy(players, myId) {
-  const me = players[myId];
-  let best = null, bestD = Infinity;
-  for (const other of Object.values(players)) {
-    if (other.id === myId || !other.alive) continue;
-    const d = euclidean(me, other);
-    if (d < bestD) { bestD = d; best = other; }
-  }
-  return best ? { target: best, distance: bestD } : null;
-}
+// ---- Skill helpers ----
 
 function applyShieldedDamage(target, rawDmg, now) {
   return target.shieldedUntil > now
@@ -74,28 +68,38 @@ function emitSkillDamage(events, sourceId, target, amount) {
   });
 }
 
-function skillStrike(players, me, now, events, rng) {
-  const near = nearestEnemy(players, me.id);
-  if (!near || near.distance > ATTACK_RANGE) return;
-  const atkChar = getCharacterById(me.characterId);
-  const defChar = getCharacterById(near.target.characterId);
-  const rawDmg = calculateDamage(atkChar, defChar, true, rng);
-  const final = applyShieldedDamage(near.target, rawDmg, now);
-  near.target.hp = Math.max(0, near.target.hp - final);
-  emitSkillDamage(events, me.id, near.target, final);
+// Strike：射出青綠色飛彈（射程 = 普攻射程），施法者沿 -facing 後退 STRIKE_RECOIL_DIST
+function skillStrike(ctx, me, now, events) {
+  spawnProjectile(ctx, me, true, now, events, 'strike');
+  // 後座力：朝 facing 反方向推 STRIKE_RECOIL_DIST，碰矩形邊界軸向 clamp
+  const dx = Math.cos(me.facing);
+  const dy = Math.sin(me.facing);
+  const fromX = me.x, fromY = me.y;
+  const nx = me.x - dx * STRIKE_RECOIL_DIST;
+  const ny = me.y - dy * STRIKE_RECOIL_DIST;
+  const maxX = ARENA_WIDTH / 2 - PLAYER_RADIUS;
+  const maxY = ARENA_HEIGHT / 2 - PLAYER_RADIUS;
+  me.x = clamp(nx, -maxX, maxX);
+  me.y = clamp(ny, -maxY, maxY);
+  if (me.x !== fromX || me.y !== fromY) {
+    events.push({
+      type: 'strike_recoil',
+      playerId: me.id,
+      from: { x: fromX, y: fromY },
+      to: { x: me.x, y: me.y },
+    });
+  }
 }
 
-function skillBurst(players, me, now, events, rng) {
-  const atkChar = getCharacterById(me.characterId);
-  for (const other of Object.values(players)) {
-    if (other.id === me.id || !other.alive) continue;
-    if (euclidean(me, other) > ATTACK_RANGE) continue;
-    const defChar = getCharacterById(other.characterId);
-    const rawDmg = calculateDamage(atkChar, defChar, true, rng, BURST_MULT);
-    const final = applyShieldedDamage(other, rawDmg, now);
-    other.hp = Math.max(0, other.hp - final);
-    emitSkillDamage(events, me.id, other, final);
-  }
+// Burst：3 秒內移動 + 攻擊速度 × BURST_BUFF_MULT
+function skillBurst(me, now, events) {
+  me.speedBuffUntil = now + BURST_BUFF_DURATION_MS;
+  events.push({
+    type: 'burst_buff_on',
+    playerId: me.id,
+    untilMs: me.speedBuffUntil,
+    at: { x: me.x, y: me.y },
+  });
 }
 
 function skillDash(players, me, now, events, rng) {
@@ -133,7 +137,7 @@ function skillDash(players, me, now, events, rng) {
   }
 }
 
-function spawnProjectile(ctx, shooter, isSkill, now, events) {
+function spawnProjectile(ctx, shooter, isSkill, now, events, variant = null) {
   const angle = shooter.facing;
   const dx = Math.cos(angle);
   const dy = Math.sin(angle);
@@ -142,6 +146,7 @@ function spawnProjectile(ctx, shooter, isSkill, now, events) {
     id,
     ownerId: shooter.id,
     isSkill,
+    variant,
     x: shooter.x + dx * (PLAYER_RADIUS + 0.1),
     y: shooter.y + dy * (PLAYER_RADIUS + 0.1),
     vx: dx * PROJECTILE_SPEED,
@@ -157,6 +162,7 @@ function spawnProjectile(ctx, shooter, isSkill, now, events) {
     x: proj.x, y: proj.y,
     angle,
     isSkill,
+    variant,
   });
 }
 
@@ -175,12 +181,15 @@ export function applyInput(state, playerId, input, now, rng = Math.random) {
     me.facing = input.aimAngle;
   }
 
-  // 連續移動：WASD 推導的單位向量 + SPD 縮放
+  const buffActive = (me.speedBuffUntil ?? 0) > now;
+  const speedMult = buffActive ? BURST_BUFF_MULT : 1;
+
+  // 連續移動：WASD 推導的單位向量 + SPD 縮放（burst buff 期間 × BURST_BUFF_MULT）
   const mx = input.moveX ?? 0;
   const my = input.moveY ?? 0;
   const mag = Math.hypot(mx, my);
   if (mag > 0) {
-    const step = moveStepFor(me.characterId);
+    const step = moveStepFor(me.characterId) * speedMult;
     const nx = me.x + (mx / mag) * step;
     const ny = me.y + (my / mag) * step;
     const maxX = ARENA_WIDTH / 2 - PLAYER_RADIUS;
@@ -189,36 +198,39 @@ export function applyInput(state, playerId, input, now, rng = Math.random) {
     me.y = clamp(ny, -maxY, maxY);
   }
 
-  if (input.attack && now - me.lastAttackAt >= ATTACK_COOLDOWN_MS) {
+  const effectiveAtkCd = ATTACK_COOLDOWN_MS / speedMult;
+  if (input.attack && now - me.lastAttackAt >= effectiveAtkCd) {
     spawnProjectile(ctx, me, false, now, events);
     me.lastAttackAt = now;
   }
   if (input.skill && now >= me.skillCdUntil) {
     const char = getCharacterById(me.characterId);
     const kind = char?.skillKind;
-    if (kind === 'heal') {
-      const spc = char?.stats?.spc ?? 0;
-      const amount = Math.floor(me.maxHp * HEAL_PCT + spc * HEAL_SPC_MULT);
-      const before = me.hp;
-      me.hp = Math.min(me.maxHp, me.hp + amount);
-      const healed = me.hp - before;
-      if (healed > 0) {
-        events.push({ type: 'heal', playerId: me.id, amount: healed, at: { x: me.x, y: me.y } });
+
+    // heal 角色已改成被動觸發（見 resolveTick），右鍵完全無效（不發事件、不吃 CD）
+    if (kind !== 'heal') {
+      events.push({
+        type: 'skill_cast',
+        playerId: me.id,
+        kind: kind ?? 'projectile',
+        at: { x: me.x, y: me.y },
+        facing: me.facing,
+      });
+      if (kind === 'shield') {
+        const spc = char?.stats?.spc ?? 0;
+        me.shieldedUntil = now + SHIELD_DURATION_BASE_MS + spc * SHIELD_SPC_MULT_MS;
+        events.push({ type: 'shield_on', playerId: me.id, untilMs: me.shieldedUntil, at: { x: me.x, y: me.y } });
+      } else if (kind === 'strike') {
+        skillStrike(ctx, me, now, events);
+      } else if (kind === 'burst') {
+        skillBurst(me, now, events);
+      } else if (kind === 'dash') {
+        skillDash(players, me, now, events, rng);
+      } else {
+        spawnProjectile(ctx, me, true, now, events);
       }
-    } else if (kind === 'shield') {
-      const spc = char?.stats?.spc ?? 0;
-      me.shieldedUntil = now + SHIELD_DURATION_BASE_MS + spc * SHIELD_SPC_MULT_MS;
-      events.push({ type: 'shield_on', playerId: me.id, untilMs: me.shieldedUntil, at: { x: me.x, y: me.y } });
-    } else if (kind === 'strike') {
-      skillStrike(players, me, now, events, rng);
-    } else if (kind === 'burst') {
-      skillBurst(players, me, now, events, rng);
-    } else if (kind === 'dash') {
-      skillDash(players, me, now, events, rng);
-    } else {
-      spawnProjectile(ctx, me, true, now, events);
+      me.skillCdUntil = now + SKILL_COOLDOWN_MS;
     }
-    me.skillCdUntil = now + SKILL_COOLDOWN_MS;
   }
 
   return {
@@ -230,7 +242,7 @@ export function applyInput(state, playerId, input, now, rng = Math.random) {
   };
 }
 
-export function resolveTick(state, now) {
+export function resolveTick(state, now, rng = Math.random) {
   const players = clonePlayers(state.players);
   const events = [];
   const survivors = [];
@@ -257,7 +269,7 @@ export function resolveTick(state, now) {
       const atkChar = shooter ? getCharacterById(shooter.characterId) : null;
       const defChar = getCharacterById(hit.characterId);
       if (atkChar && defChar) {
-        const rawDmg = calculateDamage(atkChar, defChar, proj.isSkill);
+        const rawDmg = calculateDamage(atkChar, defChar, proj.isSkill, rng);
         const finalDmg = hit.shieldedUntil > now
           ? Math.floor(rawDmg * SHIELD_DAMAGE_MULT)
           : rawDmg;
@@ -280,6 +292,30 @@ export function resolveTick(state, now) {
     if (pl.alive && pl.hp <= 0) {
       pl.alive = false;
       events.push({ type: 'eliminated', playerId: pl.id });
+    }
+  }
+
+  // heal 角色的被動：HP ≤ maxHp × HEAL_PASSIVE_THRESHOLD 時自動回血，lockout HEAL_PASSIVE_CD_MS
+  for (const pl of Object.values(players)) {
+    if (!pl.alive) continue;
+    const char = getCharacterById(pl.characterId);
+    if (char?.skillKind !== 'heal') continue;
+    if (pl.hp > pl.maxHp * HEAL_PASSIVE_THRESHOLD) continue;
+    if (pl.hp >= pl.maxHp) continue;
+    if (now < (pl.healPassiveCdUntil ?? 0)) continue;
+    const spc = char?.stats?.spc ?? 0;
+    const amount = Math.floor(pl.maxHp * HEAL_PCT + spc * HEAL_SPC_MULT);
+    const before = pl.hp;
+    pl.hp = Math.min(pl.maxHp, pl.hp + amount);
+    const healed = pl.hp - before;
+    if (healed > 0) {
+      pl.healPassiveCdUntil = now + HEAL_PASSIVE_CD_MS;
+      events.push({
+        type: 'skill_cast',
+        playerId: pl.id, kind: 'heal',
+        at: { x: pl.x, y: pl.y }, facing: pl.facing,
+      });
+      events.push({ type: 'heal', playerId: pl.id, amount: healed, at: { x: pl.x, y: pl.y } });
     }
   }
 

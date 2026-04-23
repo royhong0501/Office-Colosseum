@@ -80,6 +80,36 @@
       0% { background-position: 0 0; }
       100% { background-position: 40px 0; }
     }
+    @keyframes slashArc {
+      0% { opacity: 0; transform: scale(0.6); }
+      30% { opacity: 1; transform: scale(1); }
+      100% { opacity: 0; transform: scale(1.15); }
+    }
+    @keyframes burstRing {
+      0% { opacity: 0.9; transform: scale(0.05); }
+      100% { opacity: 0; transform: scale(1); }
+    }
+    @keyframes muzzleFlash {
+      0% { opacity: 1; transform: scale(0.3); }
+      100% { opacity: 0; transform: scale(1.4); }
+    }
+    @keyframes healRise {
+      0% { opacity: 0; transform: translateY(0.2px); }
+      25% { opacity: 1; }
+      100% { opacity: 0; transform: translateY(-0.9px); }
+    }
+    @keyframes shieldBreath {
+      0%, 100% { opacity: 0.55; transform: scale(1); }
+      50% { opacity: 0.9; transform: scale(1.12); }
+    }
+    @keyframes speedBuffAura {
+      0%, 100% { opacity: 0.5; transform: scale(1); }
+      50% { opacity: 0.85; transform: scale(1.08); }
+    }
+    @keyframes dashTrail {
+      0% { opacity: 0.8; }
+      100% { opacity: 0; }
+    }
     ::-webkit-scrollbar { width:8px; height:8px; }
     ::-webkit-scrollbar-track { background: var(--bg-paper-alt); }
     ::-webkit-scrollbar-thumb { background: var(--line); }

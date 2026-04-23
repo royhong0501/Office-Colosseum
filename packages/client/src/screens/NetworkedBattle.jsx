@@ -13,7 +13,9 @@ export default function NetworkedBattle({ initialState, onEnd }) {
   const [tick, setTick] = useState(0);
   const [log, setLog] = useState(['=BATTLE.START("對戰開始")']);
   const [effects, setEffects] = useState([]);
-  const [shootingIds, setShootingIds] = useState(() => new Set());
+  const [skillCasts, setSkillCasts] = useState([]);
+  const [dashTrails, setDashTrails] = useState([]);
+  const [muzzleFlashes, setMuzzleFlashes] = useState([]);
   const [hurtIds, setHurtIds] = useState(() => new Set());
 
   const arenaRef = useRef(null);
@@ -48,7 +50,23 @@ export default function NetworkedBattle({ initialState, onEnd }) {
       if (me) selfPosRef.current = { x: me.x, y: me.y };
       for (const e of snap.events ?? []) {
         if (e.type === 'projectile_spawn') {
-          addTransient(setShootingIds, e.ownerId, 180);
+          if (e.isSkill) {
+            const id = Math.random();
+            setMuzzleFlashes(list => [...list, { id, x: e.x, y: e.y, angle: e.angle, variant: e.variant ?? null }]);
+            setTimeout(() => setMuzzleFlashes(list => list.filter(x => x.id !== id)), 150);
+          }
+        } else if (e.type === 'skill_cast') {
+          // strike 的 cast 視覺由 muzzleFlash 處理；dash 由 dash_move；shield/speedBuff 由 player state。
+          // 只有 burst（buff 啟動閃光）與 heal（上升粒子）走 skillCasts overlay。
+          if (e.kind === 'burst' || e.kind === 'heal') {
+            const id = Math.random();
+            const duration = e.kind === 'burst' ? 400 : 700;
+            setSkillCasts(list => [...list, { id, kind: e.kind, x: e.at.x, y: e.at.y, facing: e.facing }]);
+            setTimeout(() => setSkillCasts(list => list.filter(x => x.id !== id)), duration);
+          }
+        } else if (e.type === 'burst_buff_on') {
+          const name = getCharacterById(snap.players[e.playerId]?.characterId)?.name ?? e.playerId.slice(0, 4);
+          setLog(l => [...l.slice(-8), `=BURST_BUFF("${name}") // SPEED×1.5`]);
         } else if (e.type === 'damage') {
           const src = getCharacterById(snap.players[e.sourceId]?.characterId)?.name ?? e.sourceId.slice(0, 4);
           const tgt = getCharacterById(snap.players[e.targetId]?.characterId)?.name ?? e.targetId.slice(0, 4);
@@ -68,6 +86,9 @@ export default function NetworkedBattle({ initialState, onEnd }) {
         } else if (e.type === 'dash_move') {
           const name = getCharacterById(snap.players[e.playerId]?.characterId)?.name ?? e.playerId.slice(0, 4);
           setLog(l => [...l.slice(-8), `=DASH("${name}")`]);
+          const trailId = Math.random();
+          setDashTrails(list => [...list, { id: trailId, from: e.from, to: e.to }]);
+          setTimeout(() => setDashTrails(list => list.filter(x => x.id !== trailId)), 500);
           const id = Math.random();
           setEffects(eff => [...eff, { id, x: e.to.x, y: e.to.y, text: '»»»', color: '#5C8BB2' }]);
           setTimeout(() => setEffects(eff => eff.filter(x => x.id !== id)), 600);
@@ -115,9 +136,12 @@ export default function NetworkedBattle({ initialState, onEnd }) {
           players={playerList}
           effects={effects}
           projectiles={projectiles}
-          shootingIds={shootingIds}
+          skillCasts={skillCasts}
+          dashTrails={dashTrails}
+          muzzleFlashes={muzzleFlashes}
           hurtIds={hurtIds}
           selfId={selfId}
+          now={now}
         />
       </div>
       <BattleLog log={log} />

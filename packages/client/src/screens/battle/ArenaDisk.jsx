@@ -9,9 +9,12 @@ const ArenaDisk = forwardRef(function ArenaDisk({
   players,
   effects,
   projectiles = [],
-  shootingIds,
+  skillCasts = [],
+  dashTrails = [],
+  muzzleFlashes = [],
   hurtIds,
   selfId,
+  now = Date.now(),
 }, ref) {
   const W = ARENA_WIDTH;
   const H = ARENA_HEIGHT;
@@ -88,44 +91,160 @@ const ArenaDisk = forwardRef(function ArenaDisk({
             const character = getCharacterById(p.characterId);
             if (!character) return null;
             const isSelf = p.id === selfId;
-            // 自己底下加綠色高亮環
+            const shielded = (p.shieldedUntil ?? 0) > now;
             return (
               <g key={p.id}>
                 {isSelf && (
                   <circle cx={p.x} cy={p.y} r="0.5"
                     fill="none" stroke={excelColors.greenAccent} strokeWidth="0.04" opacity="0.7" />
                 )}
-                {/* 敵人底下加淡紅環 */}
                 {!isSelf && (
                   <circle cx={p.x} cy={p.y} r="0.4"
                     fill="none" stroke="#B85450" strokeWidth="0.03" opacity="0.5" />
+                )}
+                {shielded && (
+                  <g transform={`translate(${p.x} ${p.y})`} style={{ transformOrigin: '0 0' }}>
+                    <circle cx="0" cy="0" r="0.7"
+                      fill="none" stroke="#5B7FA5" strokeWidth="0.06"
+                      style={{
+                        animation: 'shieldBreath 1200ms ease-in-out infinite',
+                        transformOrigin: '0 0',
+                        filter: 'drop-shadow(0 0 4px #5B7FA5)',
+                      }} />
+                    <circle cx="0" cy="0" r="0.58"
+                      fill="#5B7FA5" opacity="0.08" />
+                  </g>
+                )}
+                {(p.speedBuffUntil ?? 0) > now && (
+                  <g transform={`translate(${p.x} ${p.y})`} style={{ transformOrigin: '0 0' }}>
+                    <circle cx="0" cy="0" r="0.62"
+                      fill="none" stroke="#E8A040" strokeWidth="0.05" strokeDasharray="0.15 0.1"
+                      style={{
+                        animation: 'speedBuffAura 700ms ease-in-out infinite',
+                        transformOrigin: '0 0',
+                        filter: 'drop-shadow(0 0 3px #FFC070)',
+                      }} />
+                  </g>
                 )}
                 <CharacterSpriteSvg
                   character={character}
                   x={p.x} y={p.y}
                   facing={p.facing ?? 0}
-                  shooting={shootingIds?.has(p.id) ?? false}
                   hurt={hurtIds?.has(p.id) ?? false}
                   paused={p.paused}
                 />
+                {shielded && (
+                  <text x={p.x} y={p.y - 0.68} textAnchor="middle" fontSize="0.32"
+                    fill="#5B7FA5" fontWeight="700"
+                    style={{
+                      fontFamily: 'Consolas, "Courier New", monospace',
+                      paintOrder: 'stroke',
+                      stroke: '#FFFFFF',
+                      strokeWidth: '0.06',
+                      strokeLinejoin: 'round',
+                    }}>
+                    {`${Math.max(0, Math.ceil((p.shieldedUntil - now) / 1000))}s`}
+                  </text>
+                )}
               </g>
             );
           })}
 
-          {/* 投射物（浮點座標） */}
-          {projectiles.map(proj => (
-            <circle
-              key={proj.id}
-              cx={proj.x}
-              cy={proj.y}
-              r={proj.isSkill ? 0.15 : 0.1}
-              fill={proj.isSkill ? '#B85450' : '#DAA520'}
-              style={{
-                transition: 'cx 33ms linear, cy 33ms linear',
-                filter: `drop-shadow(0 0 3px ${proj.isSkill ? '#B85450' : '#DAA520'})`,
-              }}
-            />
-          ))}
+          {/* 投射物（浮點座標）— variant='strike' → 青綠色；isSkill → 紅色；普攻 → 金色 */}
+          {projectiles.map(proj => {
+            const color = proj.variant === 'strike' ? '#4DB8C4'
+              : proj.isSkill ? '#B85450'
+              : '#DAA520';
+            return (
+              <circle
+                key={proj.id}
+                cx={proj.x}
+                cy={proj.y}
+                r={proj.isSkill ? 0.15 : 0.1}
+                fill={color}
+                style={{
+                  transition: 'cx 33ms linear, cy 33ms linear',
+                  filter: `drop-shadow(0 0 3px ${color})`,
+                }}
+              />
+            );
+          })}
+
+          {/* 技能施放特效：burst（buff 啟動閃光） / heal（上升粒子） */}
+          {/* strike 現在是射飛彈，cast VFX 由 projectile_spawn 的 muzzleFlashes 處理 */}
+          {skillCasts.map(sc => {
+            if (sc.kind === 'burst') {
+              return (
+                <g key={sc.id} transform={`translate(${sc.x} ${sc.y})`}
+                  style={{
+                    animation: 'burstRing 400ms ease-out forwards',
+                    transformOrigin: '0 0',
+                    pointerEvents: 'none',
+                  }}>
+                  <circle cx="0" cy="0" r="1"
+                    fill="none" stroke="#E8A040" strokeWidth="0.09"
+                    style={{ filter: 'drop-shadow(0 0 5px #FFC070)' }} />
+                  <circle cx="0" cy="0" r="0.85"
+                    fill="none" stroke="#FFFFFF" strokeWidth="0.03" opacity="0.6" />
+                </g>
+              );
+            }
+            if (sc.kind === 'heal') {
+              return (
+                <g key={sc.id} transform={`translate(${sc.x} ${sc.y})`} style={{ pointerEvents: 'none' }}>
+                  {[-0.2, 0, 0.2].map((dx, i) => (
+                    <circle key={i} cx={dx} cy="0.1" r="0.09"
+                      fill="#6B8E5A"
+                      style={{
+                        animation: `healRise 700ms ease-out ${i * 80}ms forwards`,
+                        filter: 'drop-shadow(0 0 3px #A8D090)',
+                      }} />
+                  ))}
+                </g>
+              );
+            }
+            return null;
+          })}
+
+          {/* Dash 尾跡（from → to 連線 + 3 顆殘影） */}
+          {dashTrails.map(dt => {
+            const segs = [0.25, 0.5, 0.75];
+            return (
+              <g key={dt.id} style={{ animation: 'dashTrail 500ms ease-out forwards', pointerEvents: 'none' }}>
+                <line x1={dt.from.x} y1={dt.from.y} x2={dt.to.x} y2={dt.to.y}
+                  stroke="#5C8BB2" strokeWidth="0.06" strokeLinecap="round" opacity="0.6"
+                  style={{ filter: 'drop-shadow(0 0 3px #5C8BB2)' }} />
+                {segs.map((t, i) => (
+                  <circle key={i}
+                    cx={dt.from.x + (dt.to.x - dt.from.x) * t}
+                    cy={dt.from.y + (dt.to.y - dt.from.y) * t}
+                    r="0.28"
+                    fill="none" stroke="#5C8BB2" strokeWidth="0.04"
+                    opacity={0.2 + i * 0.15} />
+                ))}
+              </g>
+            );
+          })}
+
+          {/* 技能投射物槍口閃光 — strike 青綠、其餘技能橘黃 */}
+          {muzzleFlashes.map(mf => {
+            const isStrike = mf.variant === 'strike';
+            const outer = isStrike ? '#8DE0E8' : '#FFD27A';
+            const glow = isStrike ? '#4DB8C4' : '#FF8A3D';
+            return (
+              <g key={mf.id} transform={`translate(${mf.x} ${mf.y})`}
+                style={{
+                  animation: 'muzzleFlash 150ms ease-out forwards',
+                  transformOrigin: '0 0',
+                  pointerEvents: 'none',
+                }}>
+                <circle cx="0" cy="0" r="0.4"
+                  fill={outer} opacity="0.85"
+                  style={{ filter: `drop-shadow(0 0 6px ${glow})` }} />
+                <circle cx="0" cy="0" r="0.2" fill="#FFFFFF" opacity="0.9" />
+              </g>
+            );
+          })}
         </svg>
 
         {/* Effects overlay（HTML 層，用 world→viewport 換算到 %） */}

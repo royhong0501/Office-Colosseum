@@ -28,10 +28,17 @@ export const ATTACK_RANGE = 2;
 export const BURST_MULT = 1.0;
 export const DASH_DISTANCE = 3;
 export const DASH_DMG_MULT = 0.8;
+// Strike：射出青綠色飛彈，施法者沿 -facing 後退 STRIKE_RECOIL_DIST 世界單位
+export const STRIKE_RECOIL_DIST = 2;
+// Burst：3 秒內移動 & 攻擊速度 × BURST_BUFF_MULT
+export const BURST_BUFF_DURATION_MS = 3000;
+export const BURST_BUFF_MULT = 1.5;
 // Shield：持續時間 = base + spc × mult（毫秒）
 export const SHIELD_DURATION_BASE_MS = 1500;
 export const SHIELD_SPC_MULT_MS = 25;
 export const SHIELD_DAMAGE_MULT = 0.5;
-// Heal：回血量 = maxHp × HEAL_PCT + spc × HEAL_SPC_MULT
+// Heal：被動觸發 — HP ≤ maxHp × HEAL_PASSIVE_THRESHOLD 時自動施放，觸發後 HEAL_PASSIVE_CD_MS lockout
 export const HEAL_PCT = 0.2;
 export const HEAL_SPC_MULT = 0.4;
+export const HEAL_PASSIVE_THRESHOLD = 0.3;
+export const HEAL_PASSIVE_CD_MS = 6000;
