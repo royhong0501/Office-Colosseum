@@ -1,12 +1,62 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { MSG, getCharacterById } from '@office-colosseum/shared';
 import { excelColors } from '../theme.js';
 import { getStoredPlayerName, setPlayerName, PLAYER_NAME_MAX } from '../lib/playerIdentity.js';
+import { getSocket } from '../net/socket.js';
 import {
   ExcelMenuBar,
   ExcelToolbar,
   ExcelSheetTabs,
   ExcelStatusBar,
 } from '../components/ExcelChrome.jsx';
+
+function todayStartMs() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function computeTodayStats(matches) {
+  const since = todayStartMs();
+  const today = matches.filter((m) => m.endedAt >= since);
+
+  const charCount = {};
+  let catWins = 0;
+  let dogWins = 0;
+  for (const m of today) {
+    for (const p of m.participants) {
+      charCount[p.characterId] = (charCount[p.characterId] ?? 0) + 1;
+    }
+    const winner = m.participants.find((p) => p.isWinner);
+    if (winner) {
+      const winnerType = getCharacterById(winner.characterId)?.type;
+      if (winnerType === 'cat') catWins++;
+      else if (winnerType === 'dog') dogWins++;
+    }
+  }
+
+  let topCharId = null;
+  let topCount = 0;
+  for (const [id, count] of Object.entries(charCount)) {
+    if (count > topCount) {
+      topCharId = id;
+      topCount = count;
+    }
+  }
+  const topCharName = topCharId ? getCharacterById(topCharId)?.name ?? topCharId : null;
+
+  const totalCamp = catWins + dogWins;
+  const dogRate = totalCamp ? (dogWins / totalCamp) * 100 : null;
+  const catRate = totalCamp ? (catWins / totalCamp) * 100 : null;
+
+  return {
+    matchesCount: today.length,
+    topCharName,
+    topCharCount: topCount,
+    dogRate,
+    catRate,
+  };
+}
 
 const RECENT_FILES = [
   { name: 'Q1_營收報表_v3.xlsx', date: '2026/04/18', size: '2.4 MB' },
@@ -18,6 +68,7 @@ const RECENT_FILES = [
 export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
   const [hoveredCell, setHoveredCell] = useState(null);
   const [name, setName] = useState(getStoredPlayerName());
+  const [todayStats, setTodayStats] = useState(null);
   const placeholder = useMemo(
     () => `Player-${Math.random().toString(36).slice(2, 6)}`,
     [],
@@ -26,6 +77,22 @@ export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
 
   // ExcelMenuBar expects onNavigate — wire it to a no-op since routing is prop-driven
   const noNav = () => {};
+
+  // 進入 MainMenu 就拉一次今日戰績；返回時也會 re-mount 自動更新
+  useEffect(() => {
+    const socket = getSocket();
+    const onRecords = (data) => {
+      setTodayStats(computeTodayStats(data?.matches ?? []));
+    };
+    const request = () => socket.emit(MSG.GET_RECORDS);
+    socket.on(MSG.RECORDS, onRecords);
+    if (socket.connected) request();
+    else socket.once('connect', request);
+    return () => {
+      socket.off(MSG.RECORDS, onRecords);
+      socket.off('connect', request);
+    };
+  }, []);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif' }}>
@@ -170,19 +237,44 @@ export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
               今日競技場概況
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11, color: excelColors.textLight }}>
-              {[
-                '貓方勝率: 48.2%',
-                '犬方勝率: 51.8%',
-                '今日對戰: 1,247 場',
-                'MVP: 哈士奇',
-              ].map((s, i) => (
-                <div key={i} style={{
-                  padding: '8px 12px', background: excelColors.cellBg,
-                  borderRadius: 4, border: `1px solid ${excelColors.cellBorder}`,
-                }}>
-                  {s}
-                </div>
-              ))}
+              {(() => {
+                const empty = !todayStats || todayStats.matchesCount === 0;
+                const items = [
+                  {
+                    label: '今日使用率最高',
+                    value: empty
+                      ? '—'
+                      : `${todayStats.topCharName ?? '—'}（${todayStats.topCharCount} 次）`,
+                  },
+                  {
+                    label: '今日對戰',
+                    value: empty ? '—' : `${todayStats.matchesCount} 場`,
+                  },
+                  {
+                    label: '狗方勝率',
+                    value:
+                      empty || todayStats.dogRate == null
+                        ? '—'
+                        : `${todayStats.dogRate.toFixed(1)}%`,
+                  },
+                  {
+                    label: '貓方勝率',
+                    value:
+                      empty || todayStats.catRate == null
+                        ? '—'
+                        : `${todayStats.catRate.toFixed(1)}%`,
+                  },
+                ];
+                return items.map((it, i) => (
+                  <div key={i} style={{
+                    padding: '8px 12px', background: excelColors.cellBg,
+                    borderRadius: 4, border: `1px solid ${excelColors.cellBorder}`,
+                  }}>
+                    <span style={{ color: excelColors.textLight }}>{it.label}: </span>
+                    <span style={{ color: excelColors.text, fontWeight: 600 }}>{it.value}</span>
+                  </div>
+                ));
+              })()}
             </div>
           </div>
         </div>
