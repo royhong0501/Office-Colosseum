@@ -1,290 +1,339 @@
-import { useState } from 'react';
-import { ALL_CHARACTERS } from '@office-colosseum/shared';
-import { excelColors } from '../theme.js';
+import React, { useState, useEffect, useMemo } from 'react';
+import { ALL_CHARACTERS, CAT_BREEDS, DOG_BREEDS, MSG } from '@office-colosseum/shared';
 import { CharacterSpriteImg } from '../components/CharacterSprite.jsx';
-import {
-  ExcelMenuBar,
-  ExcelToolbar,
-  ExcelSheetTabs,
-  ExcelStatusBar,
-} from '../components/ExcelChrome.jsx';
+import { getSocket } from '../net/socket.js';
+import SheetWindow from '../components/SheetWindow.jsx';
 
 const STAT_LABELS = [
-  { key: 'hp', label: 'HP', full: '體力' },
-  { key: 'atk', label: 'ATK', full: '攻擊' },
-  { key: 'def', label: 'DEF', full: '防禦' },
-  { key: 'spd', label: 'SPD', full: '速度' },
-  { key: 'spc', label: 'SPC', full: '特技' },
+  { key: 'hp', label: 'HP', full: '體力', max: 120 },
+  { key: 'atk', label: 'ATK', full: '攻擊', max: 80 },
+  { key: 'def', label: 'DEF', full: '防禦', max: 80 },
+  { key: 'spd', label: 'SPD', full: '速度', max: 90 },
+  { key: 'spc', label: 'SPC', full: '特技', max: 90 },
 ];
+
+function campLabel(type) {
+  return type === 'cat' ? '貓方' : type === 'dog' ? '狗方' : '—';
+}
+
+function idBadge(character) {
+  const prefix = character.type === 'cat' ? 'CAT' : 'DOG';
+  const list = character.type === 'cat' ? CAT_BREEDS : DOG_BREEDS;
+  const idx = list.findIndex((c) => c.id === character.id);
+  return `${prefix}-${String(idx + 1).padStart(3, '0')}`;
+}
+
+function computeCampWinRate(records, type) {
+  if (!records?.players) return null;
+  let matches = 0, wins = 0;
+  const ids = new Set((type === 'cat' ? CAT_BREEDS : DOG_BREEDS).map((c) => c.id));
+  for (const player of Object.values(records.players)) {
+    for (const [charId, r] of Object.entries(player.byCharacter ?? {})) {
+      if (!ids.has(charId)) continue;
+      matches += r.matches ?? 0;
+      wins += r.wins ?? 0;
+    }
+  }
+  if (matches === 0) return null;
+  return { matches, wins, rate: (wins / matches) * 100 };
+}
+
+function computeCharUsage(records, charId) {
+  if (!records?.players) return { matches: 0, wins: 0, rate: null };
+  let matches = 0, wins = 0;
+  for (const player of Object.values(records.players)) {
+    const r = player.byCharacter?.[charId];
+    if (!r) continue;
+    matches += r.matches ?? 0;
+    wins += r.wins ?? 0;
+  }
+  return { matches, wins, rate: matches > 0 ? (wins / matches) * 100 : null };
+}
 
 export default function CharacterBrowser({ onBack }) {
   const [filter, setFilter] = useState('all');
   const [selectedId, setSelectedId] = useState(ALL_CHARACTERS[0]?.id ?? null);
+  const [records, setRecords] = useState(null);
+
+  useEffect(() => {
+    const socket = getSocket();
+    const onRecords = (data) => setRecords(data ?? null);
+    const request = () => socket.emit(MSG.GET_RECORDS);
+    socket.on(MSG.RECORDS, onRecords);
+    if (socket.connected) request();
+    else socket.once('connect', request);
+    return () => {
+      socket.off(MSG.RECORDS, onRecords);
+      socket.off('connect', request);
+    };
+  }, []);
 
   const filtered = filter === 'all'
     ? ALL_CHARACTERS
-    : ALL_CHARACTERS.filter((c) => c.type === filter);
+    : filter === 'cat' ? CAT_BREEDS : DOG_BREEDS;
 
   const selected = ALL_CHARACTERS.find((c) => c.id === selectedId) ?? ALL_CHARACTERS[0];
 
-  const counts = {
-    all: ALL_CHARACTERS.length,
-    cat: ALL_CHARACTERS.filter((c) => c.type === 'cat').length,
-    dog: ALL_CHARACTERS.filter((c) => c.type === 'dog').length,
-  };
+  const dogRate = useMemo(() => computeCampWinRate(records, 'dog'), [records]);
+  const catRate = useMemo(() => computeCampWinRate(records, 'cat'), [records]);
+  const usage = useMemo(() => computeCharUsage(records, selected?.id), [records, selected?.id]);
+
+  const selIdx = ALL_CHARACTERS.findIndex((c) => c.id === selected?.id);
 
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', height: '100vh',
-      fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif',
-    }}>
-      <ExcelMenuBar currentSheet="Characters" onNavigate={() => {}} />
-      <ExcelToolbar cellRef="A1" formulaText={`=COLOSSEUM.CHARACTERS(${filtered.length})`} />
-
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', background: excelColors.cellBg }}>
-        {/* Left — character list */}
-        <div style={{
-          width: 280, borderRight: `1px solid ${excelColors.cellBorder}`,
-          display: 'flex', flexDirection: 'column', background: excelColors.headerBg,
-        }}>
+    <SheetWindow
+      fileName="員工能力評估表_2026Q2.xlsx"
+      cellRef={`A${selIdx + 2}`}
+      formula={`=VLOOKUP("${selected?.name ?? ''}", CHARACTERS, 2, FALSE)`}
+      tabs={[
+        { id: 'all', label: `全部 (${ALL_CHARACTERS.length})` },
+        { id: 'dog', label: `狗方 (${DOG_BREEDS.length})` },
+        { id: 'cat', label: `貓方 (${CAT_BREEDS.length})` },
+      ]}
+      activeTab={filter}
+      onTabSelect={setFilter}
+      statusLeft="唯讀 — 員工檔案請洽 HR 部門"
+      statusRight={`總員工: ${ALL_CHARACTERS.length} | 狗方: ${DOG_BREEDS.length} | 貓方: ${CAT_BREEDS.length}`}
+      fullscreen
+    >
+      <div style={{ flex: 1, overflow: 'auto', padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* ==== 頂部焦點角色 3 欄 ==== */}
+        {selected && (
           <div style={{
-            padding: '12px 16px', borderBottom: `2px solid ${excelColors.accent}`,
-            background: excelColors.accent, color: '#F5F0E8',
+            display: 'grid', gridTemplateColumns: '260px 1fr 260px',
+            gap: 16,
           }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>角色資料庫</div>
-            <div style={{ fontSize: 10, opacity: 0.7, marginTop: 2 }}>
-              共 {ALL_CHARACTERS.length} 位參賽者
+            {/* 大頭像 */}
+            <div style={{
+              width: 260, height: 260,
+              background: 'repeating-linear-gradient(135deg, var(--bg-paper-alt) 0 12px, var(--bg-paper) 12px 24px)',
+              border: '1px solid var(--line-soft)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              position: 'relative',
+            }}>
+              <div style={{
+                position: 'absolute', top: 6, left: 8,
+                fontSize: 10, fontFamily: 'var(--font-mono)',
+                color: 'var(--ink-muted)', letterSpacing: 1,
+              }}>
+                {idBadge(selected)}
+              </div>
+              <CharacterSpriteImg character={selected} size={200} />
+            </div>
+
+            {/* 角色資訊卡 */}
+            <div style={{
+              background: 'var(--bg-paper-alt)',
+              border: '1px solid var(--line-soft)',
+              padding: 20,
+              display: 'flex', flexDirection: 'column', gap: 12,
+            }}>
+              <div>
+                <div style={{
+                  fontSize: 10, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)',
+                  marginBottom: 4, letterSpacing: 1,
+                }}>
+                  員工編號 {idBadge(selected)}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                  <span style={{ fontSize: 26, fontWeight: 700, color: 'var(--ink)' }}>{selected.name}</span>
+                  <span style={{ fontSize: 13, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>
+                    {selected.nameEn}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <span style={{
+                    fontSize: 10, padding: '2px 8px',
+                    background: selected.type === 'cat' ? 'var(--accent-danger)' : 'var(--accent)',
+                    color: 'var(--bg-paper)',
+                    fontFamily: 'var(--font-mono)',
+                  }}>
+                    {campLabel(selected.type)}陣營
+                  </span>
+                  <span style={{
+                    fontSize: 10, padding: '2px 8px',
+                    border: '1px solid var(--line-soft)',
+                    color: 'var(--ink-soft)',
+                    fontFamily: 'var(--font-mono)',
+                  }}>
+                    {selected.skillKind?.toUpperCase() ?? 'SKILL'}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '70px 70px 1fr 48px', rowGap: 6, alignItems: 'center' }}>
+                {STAT_LABELS.map((s) => {
+                  const val = selected.stats[s.key] ?? 0;
+                  const pct = Math.min(100, (val / s.max) * 100);
+                  return (
+                    <React.Fragment key={s.key}>
+                      <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--ink)' }}>
+                        {s.label}
+                      </span>
+                      <span style={{ fontSize: 10, color: 'var(--ink-muted)' }}>{s.full}</span>
+                      <div style={{
+                        height: 10, background: 'var(--bg-input)',
+                        border: '1px solid var(--line-soft)',
+                        marginRight: 8,
+                      }}>
+                        <div style={{
+                          width: `${pct}%`, height: '100%',
+                          background: 'var(--accent)',
+                        }} />
+                      </div>
+                      <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--ink)', textAlign: 'right' }}>
+                        {val}
+                      </span>
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+
+              <div style={{
+                borderTop: '1px dashed var(--line-soft)', paddingTop: 10,
+                display: 'flex', flexDirection: 'column', gap: 4,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>
+                  技能 · {selected.skill}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', lineHeight: 1.5 }}>
+                  {selected.skillDesc}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
+                  操作：WASD 移動 · J 普攻 · K 技能 · ESC 切換季度報表
+                </div>
+              </div>
+            </div>
+
+            {/* 陣營 / 使用勝率 */}
+            <div style={{
+              background: 'var(--bg-paper-alt)',
+              border: '1px solid var(--line-soft)',
+              padding: 16,
+              display: 'flex', flexDirection: 'column', gap: 10,
+            }}>
+              <div style={{ fontSize: 10, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)', letterSpacing: 1 }}>
+                陣營勝率 / server-wide
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>狗方平均</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
+                  {dogRate ? `${dogRate.rate.toFixed(1)}%` : '—'}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--ink-muted)' }}>
+                  {dogRate ? `${dogRate.wins}/${dogRate.matches} 場` : '尚無資料'}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>貓方平均</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--accent-danger)', fontFamily: 'var(--font-mono)' }}>
+                  {catRate ? `${catRate.rate.toFixed(1)}%` : '—'}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--ink-muted)' }}>
+                  {catRate ? `${catRate.wins}/${catRate.matches} 場` : '尚無資料'}
+                </div>
+              </div>
+              <div style={{ borderTop: '1px dashed var(--line-soft)', paddingTop: 8 }}>
+                <div style={{ fontSize: 10, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>
+                  本角色使用數據
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--ink)', fontFamily: 'var(--font-mono)' }}>
+                  {usage.matches > 0
+                    ? `${usage.matches} 場 · 勝率 ${usage.rate?.toFixed(1)}%`
+                    : '尚未登場'}
+                </div>
+              </div>
             </div>
           </div>
+        )}
 
-          {/* Filter tabs */}
+        {/* ==== 全角色表格 ==== */}
+        <div>
           <div style={{
-            display: 'flex', borderBottom: `1px solid ${excelColors.cellBorder}`,
-            background: excelColors.toolbarBg,
+            fontSize: 11, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)',
+            marginBottom: 4,
           }}>
-            {[
-              { id: 'all', label: `全部 (${counts.all})` },
-              { id: 'cat', label: `貓方 (${counts.cat})` },
-              { id: 'dog', label: `犬方 (${counts.dog})` },
-            ].map((f) => (
-              <button
-                key={f.id}
-                onClick={() => setFilter(f.id)}
-                style={{
-                  flex: 1, padding: '8px 0', border: 'none',
-                  borderBottom: filter === f.id ? `2px solid ${excelColors.accent}` : '2px solid transparent',
-                  cursor: 'pointer',
-                  background: filter === f.id ? excelColors.cellBg : 'transparent',
-                  fontSize: 11,
-                  fontWeight: filter === f.id ? 700 : 400,
-                  color: filter === f.id ? excelColors.accent : excelColors.textLight,
-                  fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif',
-                }}
-              >
-                {f.label}
-              </button>
-            ))}
+            {`=QUERY(CHARACTERS, "SELECT * WHERE 陣營 = '${filter === 'all' ? '全部' : campLabel(filter)}'")`}
           </div>
-
-          <div style={{ flex: 1, overflowY: 'auto' }}>
-            {filtered.map((ch, idx) => {
+          <div style={{ border: '1px solid var(--line-soft)', background: 'var(--bg-input)' }}>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '68px 1.2fr 1.2fr 60px 1.4fr repeat(5, 52px)',
+              background: 'var(--bg-cell-header)',
+              borderBottom: '1px solid var(--line-soft)',
+              fontSize: 10, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)',
+            }}>
+              {['編號', '中文名', '英文名', '陣營', '技能', 'HP', 'ATK', 'DEF', 'SPD', 'SPC'].map((h, i) => (
+                <div key={i} style={{
+                  padding: '4px 6px',
+                  borderRight: i < 9 ? '1px solid var(--line-soft)' : 'none',
+                  textAlign: i >= 5 ? 'right' : 'left',
+                }}>{h}</div>
+              ))}
+            </div>
+            {filtered.map((ch, i) => {
               const isSel = ch.id === selected?.id;
               return (
                 <div
                   key={ch.id}
                   onClick={() => setSelectedId(ch.id)}
                   style={{
-                    padding: '8px 12px', cursor: 'pointer',
-                    borderBottom: `1px solid ${excelColors.cellBorder}`,
-                    background: isSel ? excelColors.selectedCell : 'transparent',
-                    borderLeft: isSel ? `3px solid ${excelColors.accent}` : '3px solid transparent',
-                    display: 'flex', alignItems: 'center', gap: 8, fontSize: 12,
+                    display: 'grid',
+                    gridTemplateColumns: '68px 1.2fr 1.2fr 60px 1.4fr repeat(5, 52px)',
+                    fontSize: 11, color: 'var(--ink)',
+                    background: isSel ? 'var(--bg-paper-alt)' : (i % 2 === 0 ? 'var(--bg-paper)' : 'var(--bg-input)'),
+                    borderBottom: '1px solid var(--line-soft)',
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-mono)',
                   }}
                 >
-                  <span style={{
-                    fontSize: 9, color: excelColors.textLight,
-                    fontFamily: 'Consolas, monospace', minWidth: 24,
-                  }}>
-                    {String(idx + 1).padStart(2, '0')}
-                  </span>
-                  <span style={{
-                    fontSize: 9, padding: '1px 5px', borderRadius: 2,
-                    background: ch.type === 'cat' ? excelColors.blueAccent : excelColors.greenAccent,
-                    color: '#F5F0E8',
-                  }}>
-                    {ch.type === 'cat' ? '貓' : '犬'}
-                  </span>
-                  <span style={{
-                    fontWeight: isSel ? 700 : 400,
-                    color: isSel ? excelColors.accent : excelColors.text,
-                  }}>
+                  <div style={{ padding: '5px 6px', borderRight: '1px solid var(--line-soft)', color: 'var(--ink-muted)' }}>
+                    {idBadge(ch)}
+                  </div>
+                  <div style={{ padding: '5px 6px', borderRight: '1px solid var(--line-soft)', fontFamily: 'var(--font-ui)', fontWeight: isSel ? 700 : 400 }}>
                     {ch.name}
-                  </span>
-                  <span style={{
-                    marginLeft: 'auto', fontSize: 10, color: excelColors.textLight,
-                  }}>
+                  </div>
+                  <div style={{ padding: '5px 6px', borderRight: '1px solid var(--line-soft)', color: 'var(--ink-soft)' }}>
                     {ch.nameEn}
-                  </span>
+                  </div>
+                  <div style={{ padding: '5px 6px', borderRight: '1px solid var(--line-soft)', color: ch.type === 'cat' ? 'var(--accent-danger)' : 'var(--accent)' }}>
+                    {campLabel(ch.type)}
+                  </div>
+                  <div style={{ padding: '5px 6px', borderRight: '1px solid var(--line-soft)', fontFamily: 'var(--font-ui)', color: 'var(--ink-soft)' }}>
+                    {ch.skill}
+                  </div>
+                  {STAT_LABELS.map((s) => (
+                    <div key={s.key} style={{
+                      padding: '5px 6px',
+                      borderRight: s.key === 'spc' ? 'none' : '1px solid var(--line-soft)',
+                      textAlign: 'right',
+                    }}>
+                      {ch.stats[s.key]}
+                    </div>
+                  ))}
                 </div>
               );
             })}
           </div>
-
-          <div style={{
-            padding: 12, borderTop: `1px solid ${excelColors.cellBorder}`,
-          }}>
-            <button
-              onClick={onBack}
-              style={{
-                width: '100%',
-                padding: '6px 0', borderRadius: 3, border: `1px solid ${excelColors.cellBorder}`,
-                cursor: 'pointer', background: 'transparent',
-                color: excelColors.textLight, fontSize: 11,
-                fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif',
-              }}
-            >
-              ← 返回主選單
-            </button>
-          </div>
         </div>
 
-        {/* Right — detail */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: 32 }}>
-          {selected && (
-            <>
-              {/* Header card */}
-              <div style={{
-                display: 'flex', gap: 24, padding: 20,
-                border: `1px solid ${excelColors.cellBorder}`,
-                borderLeft: `4px solid ${selected.color ?? excelColors.accent}`,
-                borderRadius: 4,
-                background: excelColors.headerBg,
-                marginBottom: 24,
-              }}>
-                <div style={{
-                  padding: 12,
-                  background: excelColors.cellBg,
-                  border: `1px solid ${excelColors.cellBorder}`,
-                  borderRadius: 3,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  flexShrink: 0,
-                }}>
-                  <CharacterSpriteImg character={selected} size={180} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
-                    <span style={{ fontSize: 22, fontWeight: 700, color: excelColors.accent }}>
-                      {selected.name}
-                    </span>
-                    <span style={{ fontSize: 13, color: excelColors.textLight }}>
-                      {selected.nameEn}
-                    </span>
-                  </div>
-                  <div style={{
-                    display: 'inline-block', fontSize: 10, padding: '2px 8px', borderRadius: 2,
-                    background: selected.type === 'cat' ? excelColors.blueAccent : excelColors.greenAccent,
-                    color: '#F5F0E8', marginBottom: 12,
-                  }}>
-                    {selected.type === 'cat' ? '貓方陣營' : '犬方陣營'}
-                  </div>
-                  <div style={{ fontSize: 12, color: excelColors.text, marginTop: 8 }}>
-                    <div style={{ fontWeight: 700, color: excelColors.accent, marginBottom: 2 }}>
-                      ★ 技能：{selected.skill}
-                    </div>
-                    <div style={{ fontSize: 11, color: excelColors.textLight, lineHeight: 1.5 }}>
-                      {selected.skillDesc}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Stats table */}
-              <div style={{
-                border: `1px solid ${excelColors.cellBorder}`, borderRadius: 4,
-                overflow: 'hidden', marginBottom: 24,
-              }}>
-                <div style={{
-                  padding: '8px 16px',
-                  background: excelColors.headerBg,
-                  borderBottom: `1px solid ${excelColors.cellBorder}`,
-                  fontSize: 12, fontWeight: 600, color: excelColors.text,
-                }}>
-                  能力值報表
-                </div>
-                {STAT_LABELS.map((s, i) => {
-                  const val = selected.stats[s.key];
-                  const pct = Math.min(100, (val / 100) * 100);
-                  return (
-                    <div
-                      key={s.key}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '80px 60px 1fr 50px',
-                        alignItems: 'center',
-                        padding: '8px 16px',
-                        borderBottom: i < STAT_LABELS.length - 1 ? `1px solid ${excelColors.cellBorder}` : 'none',
-                        fontSize: 12, color: excelColors.text,
-                        background: i % 2 === 0 ? 'transparent' : excelColors.toolbarBg,
-                      }}
-                    >
-                      <span style={{ fontFamily: 'Consolas, monospace', fontWeight: 700 }}>
-                        {s.label}
-                      </span>
-                      <span style={{ color: excelColors.textLight }}>
-                        {s.full}
-                      </span>
-                      <div style={{
-                        height: 14, background: excelColors.cellBg,
-                        border: `1px solid ${excelColors.cellBorder}`, borderRadius: 2,
-                        overflow: 'hidden', marginRight: 12,
-                      }}>
-                        <div style={{
-                          width: `${pct}%`, height: '100%',
-                          background: selected.color ?? excelColors.accent,
-                        }} />
-                      </div>
-                      <span style={{
-                        fontFamily: 'Consolas, monospace', fontWeight: 700,
-                        color: excelColors.accent, textAlign: 'right',
-                      }}>
-                        {val}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Summary row */}
-              <div style={{
-                display: 'flex', gap: 12, fontSize: 11, color: excelColors.textLight,
-              }}>
-                <div style={{
-                  padding: '6px 12px', background: excelColors.headerBg,
-                  border: `1px solid ${excelColors.cellBorder}`, borderRadius: 3,
-                }}>
-                  總能力值: {STAT_LABELS.reduce((a, s) => a + selected.stats[s.key], 0)}
-                </div>
-                <div style={{
-                  padding: '6px 12px', background: excelColors.headerBg,
-                  border: `1px solid ${excelColors.cellBorder}`, borderRadius: 3,
-                }}>
-                  ID: {selected.id}
-                </div>
-              </div>
-            </>
-          )}
+        <div>
+          <button
+            onClick={onBack}
+            style={{
+              padding: '6px 14px',
+              background: 'var(--bg-input)',
+              color: 'var(--ink-soft)',
+              border: '1px solid var(--line-soft)',
+              fontSize: 11,
+              cursor: 'pointer',
+              fontFamily: 'var(--font-ui)',
+            }}
+          >
+            回主選單
+          </button>
         </div>
       </div>
-
-      <ExcelSheetTabs
-        sheets={[
-          { id: 'menu', label: '主選單' },
-          { id: 'characters', label: '角色資料庫' },
-        ]}
-        active="characters"
-        onSelect={(id) => { if (id === 'menu') onBack(); }}
-      />
-      <ExcelStatusBar stats={`已載入 ${ALL_CHARACTERS.length} 筆角色資料 — ${filtered.length} 筆符合篩選條件`} />
-    </div>
+    </SheetWindow>
   );
 }

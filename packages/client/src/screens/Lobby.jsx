@@ -1,15 +1,99 @@
 import { useState, useEffect } from 'react';
-import { ALL_CHARACTERS, MSG, MIN_PLAYERS } from '@office-colosseum/shared';
+import { CAT_BREEDS, DOG_BREEDS, ALL_CHARACTERS, MSG, MIN_PLAYERS, MAX_PLAYERS } from '@office-colosseum/shared';
 import { getSocket } from '../net/socket.js';
 import { getJoinName, getPlayerUuid } from '../lib/playerIdentity.js';
 import { CharacterSpriteImg } from '../components/CharacterSprite.jsx';
-import { excelColors } from '../theme.js';
-import {
-  ExcelMenuBar,
-  ExcelToolbar,
-  ExcelSheetTabs,
-  ExcelStatusBar,
-} from '../components/ExcelChrome.jsx';
+import SheetWindow from '../components/SheetWindow.jsx';
+
+function shortSheetId(id) {
+  if (!id) return '----';
+  return id.slice(0, 4).toUpperCase().padStart(4, '0');
+}
+
+function ProgressStripes({ label }) {
+  return (
+    <div style={{
+      border: '1px solid var(--line-soft)',
+      background: 'var(--bg-input)',
+    }}>
+      <div style={{
+        fontSize: 11, color: 'var(--ink-soft)', padding: '6px 10px',
+        borderBottom: '1px solid var(--line-soft)',
+        fontFamily: 'var(--font-mono)',
+      }}>
+        {label}
+      </div>
+      <div style={{
+        height: 16,
+        background: 'repeating-linear-gradient(135deg, var(--bg-chrome) 0 10px, var(--bg-paper-alt) 10px 20px)',
+        animation: 'sheetStripesSlide 1.2s linear infinite',
+      }} />
+    </div>
+  );
+}
+
+function PickerSection({ title, formula, characters, me, otherPickers, onPick }) {
+  return (
+    <div style={{
+      border: '1px solid var(--line-soft)', background: 'var(--bg-input)',
+      display: 'flex', flexDirection: 'column', minHeight: 0,
+    }}>
+      <div style={{
+        padding: '6px 10px',
+        background: 'var(--bg-cell-header)',
+        borderBottom: '1px solid var(--line-soft)',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        fontSize: 11, color: 'var(--ink-soft)',
+      }}>
+        <span style={{ fontWeight: 600 }}>{title}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-muted)' }}>
+          {formula}
+        </span>
+      </div>
+      <div style={{
+        padding: 8,
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))',
+        gap: 6,
+      }}>
+        {characters.map((ch) => {
+          const isPicked = me?.characterId === ch.id;
+          const otherPicker = otherPickers.get(ch.id);
+          return (
+            <div
+              key={ch.id}
+              onClick={() => onPick(ch.id)}
+              style={{
+                padding: 8,
+                cursor: 'pointer',
+                background: isPicked ? 'var(--bg-paper-alt)' : 'var(--bg-paper)',
+                border: `1px solid ${isPicked ? 'var(--accent)' : 'var(--line-soft)'}`,
+                opacity: otherPicker ? 0.55 : 1,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                minHeight: 92,
+              }}
+            >
+              <CharacterSpriteImg character={ch} size={40} />
+              <div style={{
+                fontSize: 11, color: 'var(--ink)',
+                fontWeight: isPicked ? 600 : 400,
+                textAlign: 'center',
+              }}>{ch.name}</div>
+              <div style={{ fontSize: 9, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>
+                {ch.nameEn}
+              </div>
+              {otherPicker && (
+                <div style={{ fontSize: 9, color: 'var(--accent-danger)' }}>
+                  {otherPicker.name} 已選
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function Lobby({ onMatchStart, onBack }) {
   const [players, setPlayers] = useState([]);
@@ -43,30 +127,14 @@ export default function Lobby({ onMatchStart, onBack }) {
 
   const me = players.find((p) => p.id === socket.id);
 
-  const handlePick = (charId) => {
-    socket.emit(MSG.PICK, { characterId: charId });
-  };
+  const handlePick = (charId) => socket.emit(MSG.PICK, { characterId: charId });
+  const handleReady = () => socket.emit(MSG.READY, { ready: !me?.ready });
+  const handleStart = () => socket.emit(MSG.START, {});
+  const handleAddBot = () => socket.emit(MSG.ADD_BOT);
+  const handleRemoveBot = (botId) => socket.emit(MSG.REMOVE_BOT, { botId });
+  const handleBack = () => { socket.emit(MSG.LEAVE); onBack(); };
 
-  const handleReady = () => {
-    socket.emit(MSG.READY, { ready: !me?.ready });
-  };
-
-  const handleStart = () => {
-    socket.emit(MSG.START, {});
-  };
-
-  const handleAddBot = () => {
-    socket.emit(MSG.ADD_BOT);
-  };
-
-  const handleRemoveBot = (botId) => {
-    socket.emit(MSG.REMOVE_BOT, { botId });
-  };
-
-  const handleBack = () => {
-    socket.emit(MSG.LEAVE);
-    onBack();
-  };
+  const readyCount = players.filter((p) => p.ready).length;
 
   const canStart =
     players.length >= MIN_PLAYERS &&
@@ -83,332 +151,285 @@ export default function Lobby({ onMatchStart, onBack }) {
     return null;
   })();
 
-  // ---- Loading placeholder ----
+  // 角色 → 其他玩家查表（排除自己）
+  const otherPickers = new Map();
+  if (me) {
+    for (const p of players) {
+      if (p.id !== socket.id && p.characterId) {
+        otherPickers.set(p.characterId, p);
+      }
+    }
+  }
+
   if (!me) {
     return (
-      <div style={{
-        display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center',
-        background: excelColors.cellBg, fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif',
-        color: excelColors.textLight, fontSize: 16,
-      }}>
-        連線中...
-      </div>
+      <SheetWindow
+        fileName="連線大廳.xlsx — 連線中"
+        cellRef="A1"
+        formula="=CONNECTING()"
+        statusLeft="正在連線至對戰節點…"
+        statusRight=""
+        fullscreen
+      >
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-muted)', fontSize: 14 }}>
+          正在同步工作表…
+        </div>
+      </SheetWindow>
     );
   }
 
-  return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', height: '100vh',
-      fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif',
-    }}>
-      <ExcelMenuBar currentSheet="Lobby" onNavigate={() => {}} />
-      <ExcelToolbar
-        cellRef="A1"
-        formulaText={`=COLOSSEUM.LOBBY(${players.length})`}
-      />
+  const fileSuffix = me.ready ? '[唯讀]' : '[編輯中]';
 
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', background: excelColors.cellBg }}>
-        {/* Left sidebar — player roster */}
+  return (
+    <SheetWindow
+      fileName={`連線大廳.xlsx — ${fileSuffix}`}
+      cellRef="B4"
+      formula={`=FILTER(PLAYERS, STATUS="就緒") → ${readyCount}/${players.length}`}
+      tabs={[
+        { id: 'menu', label: '主選單' },
+        { id: 'lobby', label: '連線大廳' },
+      ]}
+      activeTab="lobby"
+      onTabSelect={(id) => { if (id === 'menu') handleBack(); }}
+      statusLeft={canStart ? '就緒 — 所有參賽者已準備，房主可啟動對戰' : '等待中 — 請完成選角與準備'}
+      statusRight={`參賽者 ${players.length}/${MAX_PLAYERS} | 就緒 ${readyCount}/${players.length}`}
+      fullscreen
+    >
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '320px 1fr', minHeight: 0 }}>
+        {/* ==== 左：玩家名單試算表 ==== */}
         <div style={{
-          width: 240, borderRight: `1px solid ${excelColors.cellBorder}`,
-          display: 'flex', flexDirection: 'column', background: excelColors.headerBg,
+          display: 'flex', flexDirection: 'column',
+          borderRight: '1px solid var(--line-soft)',
+          background: 'var(--bg-paper)',
+          minHeight: 0,
         }}>
-          {/* Lobby title */}
+          {/* 工具列區（bot 按鈕） */}
           <div style={{
-            padding: '12px 16px', borderBottom: `2px solid ${excelColors.accent}`,
-            background: excelColors.accent, color: '#F5F0E8',
+            padding: '6px 10px',
+            background: 'var(--bg-cell-header)',
+            borderBottom: '1px solid var(--line-soft)',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            fontSize: 11,
           }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>
-              Lobby ({players.length}/{8})
-            </div>
-            <div style={{ fontSize: 10, opacity: 0.7, marginTop: 2 }}>
-              最少 {MIN_PLAYERS} 人才能開始
-            </div>
+            <span style={{ color: 'var(--ink-soft)', fontWeight: 600 }}>
+              工作表：參賽者名冊
+            </span>
+            {me.isHost && (
+              <button
+                onClick={handleAddBot}
+                disabled={players.length >= MAX_PLAYERS}
+                style={{
+                  background: 'var(--bg-input)',
+                  border: '1px solid var(--line)',
+                  color: players.length >= MAX_PLAYERS ? 'var(--ink-faint)' : 'var(--ink)',
+                  cursor: players.length >= MAX_PLAYERS ? 'not-allowed' : 'pointer',
+                  fontSize: 10, padding: '2px 8px',
+                  fontFamily: 'var(--font-ui)',
+                }}
+              >
+                + 新增 Bot
+              </button>
+            )}
           </div>
 
-          {/* Player rows */}
-          <div style={{ flex: 1, overflowY: 'auto' }}>
-            {players.map((p) => {
-              const char = ALL_CHARACTERS.find((c) => c.id === p.characterId);
+          {/* 表頭 */}
+          <div style={{
+            display: 'grid', gridTemplateColumns: '68px 1fr 64px 48px',
+            background: 'var(--bg-cell-header)',
+            borderBottom: '1px solid var(--line-soft)',
+            fontSize: 10, color: 'var(--ink-muted)',
+            fontFamily: 'var(--font-mono)',
+            textAlign: 'left',
+          }}>
+            {['編號', '暱稱 / 角色', '狀態', ''].map((h, i) => (
+              <div key={i} style={{ padding: '4px 8px', borderRight: i < 3 ? '1px solid var(--line-soft)' : 'none' }}>
+                {h}
+              </div>
+            ))}
+          </div>
+
+          {/* 玩家列 */}
+          <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+            {players.map((p, rowIdx) => {
+              const ch = ALL_CHARACTERS.find((c) => c.id === p.characterId);
               const isMe = p.id === socket.id;
               return (
                 <div
                   key={p.id}
                   style={{
-                    padding: '8px 12px',
-                    borderBottom: `1px solid ${excelColors.cellBorder}`,
-                    background: isMe ? excelColors.selectedCell : 'transparent',
-                    fontSize: 12,
+                    display: 'grid', gridTemplateColumns: '68px 1fr 64px 48px',
+                    fontSize: 11, color: 'var(--ink)',
+                    background: isMe ? 'var(--bg-paper-alt)' : (rowIdx % 2 === 0 ? 'var(--bg-paper)' : 'var(--bg-input)'),
+                    borderBottom: '1px solid var(--line-soft)',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {p.isHost && (
-                      <span style={{ fontSize: 10, background: excelColors.accent, color: '#F5F0E8', padding: '1px 4px', borderRadius: 2 }}>
-                        HOST
-                      </span>
-                    )}
-                    {p.isBot && (
-                      <span style={{ fontSize: 10, background: excelColors.blueAccent, color: '#F5F0E8', padding: '1px 4px', borderRadius: 2 }}>
-                        CPU
-                      </span>
-                    )}
-                    <span style={{ fontWeight: isMe ? 700 : 400, color: excelColors.text }}>
-                      {p.name}
-                    </span>
-                    {p.ready && (
-                      <span style={{ marginLeft: 'auto', color: excelColors.greenAccent, fontWeight: 700 }}>
-                        ✔
-                      </span>
-                    )}
+                  <div style={{
+                    padding: '6px 8px',
+                    borderRight: '1px solid var(--line-soft)',
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--ink-muted)',
+                    display: 'flex', alignItems: 'center',
+                  }}>
+                    SH-{shortSheetId(p.id.replace(/^bot-/, 'BOT'))}
+                  </div>
+                  <div style={{ padding: '6px 8px', borderRight: '1px solid var(--line-soft)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {p.isHost && (
+                        <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', background: 'var(--accent)', color: 'var(--bg-paper)', padding: '0 4px' }}>HOST</span>
+                      )}
+                      {p.isBot && (
+                        <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', background: 'var(--bg-chrome-dark)', color: 'var(--bg-paper)', padding: '0 4px' }}>BOT</span>
+                      )}
+                      <span style={{ fontWeight: isMe ? 700 : 400 }}>{p.name}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--ink-muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+                      {ch ? `${ch.name} · ${ch.type === 'cat' ? '貓方' : '狗方'}` : '#N/A'}
+                    </div>
+                  </div>
+                  <div style={{
+                    padding: '6px 8px', borderRight: '1px solid var(--line-soft)',
+                    fontSize: 10, fontFamily: 'var(--font-mono)',
+                    color: p.ready ? 'var(--accent)' : 'var(--ink-muted)',
+                    display: 'flex', alignItems: 'center',
+                    fontWeight: p.ready ? 600 : 400,
+                  }}>
+                    {p.ready ? '就緒' : '編輯中'}
+                  </div>
+                  <div style={{ padding: '4px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {me.isHost && p.isBot && (
                       <button
                         onClick={() => handleRemoveBot(p.id)}
                         title="移除"
                         style={{
-                          marginLeft: p.ready ? 6 : 'auto',
                           background: 'transparent',
-                          border: `1px solid ${excelColors.cellBorder}`,
-                          color: excelColors.textLight,
-                          cursor: 'pointer',
+                          border: '1px solid var(--line)',
+                          color: 'var(--ink-muted)',
                           fontSize: 10,
-                          lineHeight: 1,
-                          padding: '1px 4px',
-                          fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif',
+                          padding: '1px 5px',
+                          cursor: 'pointer',
+                          fontFamily: 'var(--font-ui)',
                         }}
                       >
-                        ✕
+                        —
                       </button>
                     )}
-                  </div>
-                  <div style={{ fontSize: 10, color: excelColors.textLight, marginTop: 2 }}>
-                    {char ? char.name : '—'}
                   </div>
                 </div>
               );
             })}
-            {/* Empty slots */}
-            {Array.from({ length: Math.max(0, 8 - players.length) }).map((_, i) => (
+            {Array.from({ length: Math.max(0, MAX_PLAYERS - players.length) }).map((_, i) => (
               <div
                 key={`empty-${i}`}
                 style={{
-                  padding: '8px 12px',
-                  borderBottom: `1px solid ${excelColors.cellBorder}`,
-                  fontSize: 11, color: excelColors.cellBorder,
-                  fontStyle: 'italic',
+                  display: 'grid', gridTemplateColumns: '68px 1fr 64px 48px',
+                  fontSize: 11, color: 'var(--ink-faint)',
+                  borderBottom: '1px solid var(--line-soft)',
+                  fontFamily: 'var(--font-mono)',
                 }}
               >
-                — 等待玩家加入...
+                <div style={{ padding: '6px 8px', borderRight: '1px solid var(--line-soft)' }}>#N/A</div>
+                <div style={{ padding: '6px 8px', borderRight: '1px solid var(--line-soft)', fontStyle: 'italic' }}>
+                  — 空格 —
+                </div>
+                <div style={{ padding: '6px 8px', borderRight: '1px solid var(--line-soft)' }}>—</div>
+                <div />
               </div>
             ))}
           </div>
 
-          {/* Action buttons */}
+          {/* 底部按鈕 */}
           <div style={{
-            padding: 12, borderTop: `1px solid ${excelColors.cellBorder}`,
-            display: 'flex', flexDirection: 'column', gap: 8,
+            borderTop: '1px solid var(--line-soft)',
+            background: 'var(--bg-paper-alt)',
+            padding: 10, display: 'flex', flexDirection: 'column', gap: 6,
           }}>
+            {me.isHost && (
+              <button
+                onClick={handleStart}
+                disabled={!canStart}
+                style={{
+                  padding: '7px 0',
+                  background: canStart ? 'var(--accent)' : 'var(--bg-chrome)',
+                  color: canStart ? 'var(--bg-paper)' : 'var(--ink-muted)',
+                  border: '1px solid var(--line)',
+                  fontSize: 12, fontWeight: 600,
+                  cursor: canStart ? 'pointer' : 'not-allowed',
+                  fontFamily: 'var(--font-ui)',
+                }}
+              >
+                開始對戰
+              </button>
+            )}
+            {!canStart && startDisabledReason && me.isHost && (
+              <div style={{ fontSize: 10, color: 'var(--ink-muted)', textAlign: 'center' }}>
+                {startDisabledReason}
+              </div>
+            )}
             <button
               onClick={handleReady}
               style={{
-                padding: '8px 0', borderRadius: 3, border: 'none', cursor: 'pointer',
-                background: me.ready ? excelColors.redAccent : excelColors.greenAccent,
-                color: '#F5F0E8', fontWeight: 700, fontSize: 12,
-                fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif',
+                padding: '6px 0',
+                background: me.ready ? 'var(--bg-input)' : 'var(--accent)',
+                color: me.ready ? 'var(--ink)' : 'var(--bg-paper)',
+                border: '1px solid var(--line)',
+                fontSize: 11, fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'var(--font-ui)',
               }}
             >
-              {me.ready ? '取消準備' : '準備 (Ready)'}
+              {me.ready ? '取消準備' : '按下準備 (F5)'}
             </button>
-
-            {me.isHost && (
-              <>
-                <button
-                  onClick={handleStart}
-                  disabled={!canStart}
-                  style={{
-                    padding: '8px 0', borderRadius: 3, border: 'none',
-                    cursor: canStart ? 'pointer' : 'not-allowed',
-                    background: canStart ? excelColors.accent : excelColors.cellBorder,
-                    color: '#F5F0E8', fontWeight: 700, fontSize: 12,
-                    fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif',
-                  }}
-                >
-                  ▶ 開始比賽
-                </button>
-                {!canStart && startDisabledReason && (
-                  <div style={{
-                    fontSize: 10, color: excelColors.textLight,
-                    textAlign: 'center', lineHeight: 1.4, marginTop: -2,
-                  }}>
-                    {startDisabledReason}
-                  </div>
-                )}
-                <button
-                  onClick={handleAddBot}
-                  disabled={players.length >= 8}
-                  style={{
-                    padding: '6px 0', borderRadius: 3,
-                    border: `1px solid ${excelColors.cellBorder}`,
-                    background: players.length >= 8 ? excelColors.headerBg : excelColors.cellBg,
-                    color: players.length >= 8 ? excelColors.cellBorder : excelColors.text,
-                    cursor: players.length >= 8 ? 'not-allowed' : 'pointer',
-                    fontSize: 11,
-                    fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif',
-                  }}
-                >
-                  + 新增電腦對手
-                </button>
-              </>
-            )}
-
             <button
               onClick={handleBack}
               style={{
-                padding: '6px 0', borderRadius: 3, border: `1px solid ${excelColors.cellBorder}`,
-                cursor: 'pointer', background: 'transparent',
-                color: excelColors.textLight, fontSize: 11,
-                fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif',
+                padding: '5px 0',
+                background: 'transparent',
+                color: 'var(--ink-soft)',
+                border: '1px solid var(--line-soft)',
+                fontSize: 10,
+                cursor: 'pointer',
+                fontFamily: 'var(--font-ui)',
               }}
             >
-              ← 返回主選單
+              離開大廳
             </button>
           </div>
         </div>
 
-        {/* Right — character picker grid */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* Grid header */}
-          <div style={{
-            padding: '8px 16px', borderBottom: `1px solid ${excelColors.cellBorder}`,
-            background: excelColors.headerBg,
-            fontSize: 12, fontWeight: 600, color: excelColors.text,
-          }}>
-            選擇角色 — 點選角色牌選擇
+        {/* ==== 右：角色選擇網格 + 偽裝進度條 ==== */}
+        <div style={{
+          display: 'flex', flexDirection: 'column', minHeight: 0,
+          overflow: 'hidden',
+        }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <PickerSection
+              title="狗方 / DOG DEPT."
+              formula={`=COUNTA(B2:B${1 + DOG_BREEDS.length})`}
+              characters={DOG_BREEDS}
+              me={me}
+              otherPickers={otherPickers}
+              onPick={handlePick}
+            />
+            <PickerSection
+              title="貓方 / CAT DEPT."
+              formula={`=COUNTA(C2:C${1 + CAT_BREEDS.length})`}
+              characters={CAT_BREEDS}
+              me={me}
+              otherPickers={otherPickers}
+              onPick={handlePick}
+            />
           </div>
 
-          {/* Column headers */}
-          <div style={{
-            display: 'grid', gridTemplateColumns: '36px repeat(10, 1fr)',
-            background: excelColors.headerBg,
-            borderBottom: `1px solid ${excelColors.cellBorder}`,
-            fontFamily: 'Consolas, monospace', fontSize: 10,
-            color: excelColors.textLight, textAlign: 'center',
-          }}>
-            <div style={{ padding: '2px 0', borderRight: `0.5px solid ${excelColors.cellBorder}` }}></div>
-            {['A','B','C','D','E','F','G','H','I','J'].map((h) => (
-              <div key={h} style={{ padding: '2px 0', borderRight: `0.5px solid ${excelColors.cellBorder}` }}>{h}</div>
-            ))}
-          </div>
-
-          {/* Character grid — 2 rows of 10 */}
-          <div style={{ flex: 1, overflowY: 'auto' }}>
-            {[0, 1].map((rowIdx) => (
-              <div
-                key={rowIdx}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '36px repeat(10, 1fr)',
-                  borderBottom: `1px solid ${excelColors.cellBorder}`,
-                }}
-              >
-                {/* Row number */}
-                <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: excelColors.headerBg, borderRight: `1px solid ${excelColors.cellBorder}`,
-                  fontSize: 10, color: excelColors.textLight, fontFamily: 'Consolas, monospace',
-                }}>
-                  {rowIdx + 1}
-                </div>
-
-                {ALL_CHARACTERS.slice(rowIdx * 10, rowIdx * 10 + 10).map((ch) => {
-                  const isPicked = me.characterId === ch.id;
-                  const otherPicker = players.find(
-                    (p) => p.id !== socket.id && p.characterId === ch.id,
-                  );
-                  return (
-                    <div
-                      key={ch.id}
-                      onClick={() => handlePick(ch.id)}
-                      style={{
-                        padding: '8px 6px', cursor: 'pointer',
-                        borderRight: `0.5px solid ${excelColors.cellBorder}`,
-                        background: isPicked
-                          ? excelColors.selectedCell
-                          : otherPicker
-                          ? excelColors.headerBg
-                          : 'transparent',
-                        outline: isPicked ? `2px solid ${excelColors.accent}` : 'none',
-                        outlineOffset: -2,
-                        transition: 'background 0.15s',
-                        textAlign: 'center',
-                        minHeight: 80,
-                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isPicked) e.currentTarget.style.background = excelColors.selectedCell + '88';
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isPicked && !otherPicker) e.currentTarget.style.background = 'transparent';
-                        else if (!isPicked && otherPicker) e.currentTarget.style.background = excelColors.headerBg;
-                      }}
-                    >
-                      <CharacterSpriteImg character={ch} size={42} />
-
-                      <div style={{
-                        fontSize: 9, marginTop: 3,
-                        color: isPicked ? excelColors.accent : excelColors.text,
-                        fontWeight: isPicked ? 700 : 400,
-                      }}>
-                        {ch.name}
-                      </div>
-                      {otherPicker && (
-                        <div style={{ fontSize: 8, color: excelColors.blueAccent }}>
-                          {otherPicker.name}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-
-          {/* Character detail strip */}
-          {me.characterId && (() => {
-            const picked = ALL_CHARACTERS.find((c) => c.id === me.characterId);
-            if (!picked) return null;
-            return (
-              <div style={{
-                padding: '8px 16px', borderTop: `2px solid ${excelColors.accent}`,
-                background: excelColors.headerBg,
-                display: 'flex', alignItems: 'center', gap: 20, fontSize: 11,
-              }}>
-                <span style={{ fontWeight: 700, color: excelColors.accent }}>{picked.name}</span>
-                <span style={{ color: excelColors.textLight }}>{picked.nameEn}</span>
-                <span>HP: {picked.stats.hp}</span>
-                <span>ATK: {picked.stats.atk}</span>
-                <span>DEF: {picked.stats.def}</span>
-                <span>SPD: {picked.stats.spd}</span>
-                <span>SPC: {picked.stats.spc}</span>
-                <span style={{ color: excelColors.textLight, fontSize: 10 }}>
-                  技能: {picked.skill}
-                </span>
-              </div>
-            );
-          })()}
+          {/* 偽裝進度條（未 canStart 時顯示） */}
+          {!canStart && (
+            <div style={{ padding: '0 12px 12px 12px' }}>
+              <ProgressStripes
+                label={`正在重新計算 1,247 個儲存格 — 已解析 ${readyCount}/${players.length} 位參賽者 · 預估剩餘 < 20 秒`}
+              />
+            </div>
+          )}
         </div>
       </div>
-
-      <ExcelSheetTabs
-        sheets={[
-          { id: 'menu', label: '主選單' },
-          { id: 'lobby', label: '連線大廳' },
-        ]}
-        active="lobby"
-        onSelect={(id) => { if (id === 'menu') handleBack(); }}
-      />
-      <ExcelStatusBar
-        stats={`大廳: ${players.length}/8 人 — ${me.ready ? '已準備' : '尚未準備'}`}
-      />
-    </div>
+    </SheetWindow>
   );
 }
