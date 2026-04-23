@@ -7,10 +7,11 @@ import {
 import {
   ATTACK_COOLDOWN_MS,
   PROJECTILE_SPEED, PROJECTILE_MAX_DIST,
-  SHIELD_DURATION_MS,
+  SHIELD_DURATION_BASE_MS, SHIELD_SPC_MULT_MS,
   ARENA_WIDTH, ARENA_HEIGHT, PLAYER_RADIUS,
   MOVE_STEP, DASH_DISTANCE,
 } from '../src/constants.js';
+import { getCharacterById } from '../src/characters.js';
 
 // russian_blue: spd=60 baseline → moveStep=MOVE_STEP；skillKind='strike'
 // british_shorthair: spd=30，HP 大，當沙包；skillKind='strike'
@@ -254,7 +255,8 @@ test('skillKind shield: 設定 shieldedUntil 並讓被投射物命中的傷害�
   // 有護盾組
   let s = buildWorld();
   s = applyInput(s, 'a', input({ skill: true }), 1000, fixedRng);
-  assert.equal(s.players.a.shieldedUntil, 1000 + SHIELD_DURATION_MS);
+  const sfSpc = getCharacterById('scottish_fold').stats.spc;
+  assert.equal(s.players.a.shieldedUntil, 1000 + SHIELD_DURATION_BASE_MS + sfSpc * SHIELD_SPC_MULT_MS);
   assert.equal(s.projectiles.length, 0, 'shield 不生成投射物');
   assert.ok(s.events.some(e => e.type === 'shield_on' && e.playerId === 'a'));
 

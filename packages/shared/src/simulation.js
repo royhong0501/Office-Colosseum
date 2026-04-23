@@ -6,7 +6,8 @@ import {
   PROJECTILE_SPEED, PROJECTILE_MAX_DIST,
   ARENA_WIDTH, ARENA_HEIGHT, PLAYER_RADIUS, PROJECTILE_RADIUS,
   BASELINE_SPD, MOVE_STEP, MOVE_STEP_MIN, MOVE_STEP_MAX,
-  SHIELD_DURATION_MS, SHIELD_DAMAGE_MULT, HEAL_PCT,
+  SHIELD_DURATION_BASE_MS, SHIELD_SPC_MULT_MS, SHIELD_DAMAGE_MULT,
+  HEAL_PCT, HEAL_SPC_MULT,
   ATTACK_RANGE, BURST_MULT, DASH_DISTANCE, DASH_DMG_MULT,
 } from './constants.js';
 
@@ -196,7 +197,8 @@ export function applyInput(state, playerId, input, now, rng = Math.random) {
     const char = getCharacterById(me.characterId);
     const kind = char?.skillKind;
     if (kind === 'heal') {
-      const amount = Math.floor(me.maxHp * HEAL_PCT);
+      const spc = char?.stats?.spc ?? 0;
+      const amount = Math.floor(me.maxHp * HEAL_PCT + spc * HEAL_SPC_MULT);
       const before = me.hp;
       me.hp = Math.min(me.maxHp, me.hp + amount);
       const healed = me.hp - before;
@@ -204,7 +206,8 @@ export function applyInput(state, playerId, input, now, rng = Math.random) {
         events.push({ type: 'heal', playerId: me.id, amount: healed, at: { x: me.x, y: me.y } });
       }
     } else if (kind === 'shield') {
-      me.shieldedUntil = now + SHIELD_DURATION_MS;
+      const spc = char?.stats?.spc ?? 0;
+      me.shieldedUntil = now + SHIELD_DURATION_BASE_MS + spc * SHIELD_SPC_MULT_MS;
       events.push({ type: 'shield_on', playerId: me.id, untilMs: me.shieldedUntil, at: { x: me.x, y: me.y } });
     } else if (kind === 'strike') {
       skillStrike(players, me, now, events, rng);
