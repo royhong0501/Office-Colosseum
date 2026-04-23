@@ -10,6 +10,8 @@ export default function BattleLog({ log }) {
       borderTop: `2px solid ${excelColors.accent}`,
       background: excelColors.headerBg,
       flexShrink: 0,
+      height: 170,
+      overflow: 'hidden',
       display: 'flex', flexDirection: 'column',
     }}>
       {/* Formula-bar header */}
@@ -34,7 +36,7 @@ export default function BattleLog({ log }) {
         fontFamily: 'Consolas, "Courier New", monospace',
         fontSize: 10, lineHeight: 1.6,
         display: 'flex', flexDirection: 'column', gap: 0,
-        maxHeight: 140, overflowY: 'auto',
+        flex: 1, overflow: 'hidden',
       }}>
         {visible.map((entry, i) => {
           const isError = entry.includes('ERROR');
@@ -51,6 +53,9 @@ export default function BattleLog({ log }) {
               borderBottom: `0.5px solid ${excelColors.cellBorder}22`,
               padding: '1px 0',
               fontWeight: isElim ? 700 : 400,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}>{entry}</div>
           );
         })}
