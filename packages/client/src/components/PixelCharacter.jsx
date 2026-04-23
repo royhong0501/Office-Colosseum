@@ -6,7 +6,7 @@ const VARIANTS = {
   persian:          { ears: 'tufted',  fluff: true },
   siamese:          { ears: 'pointy',  faceMask: '#6B4E2E', eyeColor: '#4B7FC8' },
   scottish_fold:    { ears: 'folded' },
-  maine_coon:       { ears: 'tufted',  body: 'wide' },
+  american_shorthair:{ ears: 'rounded', eyeColor: '#6A8A3E' },
   bengal:           { ears: 'pointy',  pattern: 'spots', spotColor: '#4a3520' },
   ragdoll:          { ears: 'pointy',  eyeColor: '#4B7FC8', fluff: true },
   russian_blue:     { ears: 'pointy',  eyeColor: '#2a9632' },
