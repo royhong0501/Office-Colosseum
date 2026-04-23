@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { excelColors } from '../theme.js';
+import { getStoredPlayerName, setPlayerName, PLAYER_NAME_MAX } from '../lib/playerIdentity.js';
 import {
   ExcelMenuBar,
   ExcelToolbar,
@@ -16,6 +17,12 @@ const RECENT_FILES = [
 
 export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
   const [hoveredCell, setHoveredCell] = useState(null);
+  const [name, setName] = useState(getStoredPlayerName());
+  const placeholder = useMemo(
+    () => `Player-${Math.random().toString(36).slice(2, 6)}`,
+    [],
+  );
+  const commitName = () => setPlayerName(name);
 
   // ExcelMenuBar expects onNavigate — wire it to a no-op since routing is prop-driven
   const noNav = () => {};
@@ -75,6 +82,43 @@ export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
 
         {/* Right panel */}
         <div style={{ flex: 1, padding: '40px 48px', overflowY: 'auto' }}>
+          {/* User name cell — 顯示 / 儲存使用者在連線時要用的名字 */}
+          <div style={{
+            border: `1px solid ${excelColors.cellBorder}`, borderRadius: 4,
+            background: excelColors.headerBg, padding: '10px 12px', marginBottom: 20,
+          }}>
+            <div style={{
+              fontSize: 11, fontWeight: 600, color: excelColors.accent,
+              display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6,
+            }}>
+              <span style={{
+                background: excelColors.accent, color: '#F5F0E8',
+                padding: '0 5px', borderRadius: 2, fontSize: 9,
+              }}>fx</span>
+              <span>使用者名稱 / Player Name</span>
+            </div>
+            <input
+              value={name}
+              placeholder={placeholder}
+              maxLength={PLAYER_NAME_MAX}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={commitName}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { commitName(); e.currentTarget.blur(); }
+              }}
+              style={{
+                width: '100%', padding: '6px 8px', boxSizing: 'border-box',
+                border: `1px solid ${excelColors.cellBorder}`,
+                background: excelColors.cellBg, fontSize: 13,
+                fontFamily: 'Consolas, "Microsoft JhengHei", monospace',
+                outline: 'none', borderRadius: 2,
+              }}
+            />
+            <div style={{ fontSize: 9, color: excelColors.textLight, marginTop: 4 }}>
+              * 最多 {PLAYER_NAME_MAX} 字；按 Enter 或離開欄位自動儲存。留空會使用預設 {placeholder}
+            </div>
+          </div>
+
           <div style={{ fontSize: 18, fontWeight: 600, color: excelColors.text, marginBottom: 24 }}>
             最近開啟的檔案
           </div>

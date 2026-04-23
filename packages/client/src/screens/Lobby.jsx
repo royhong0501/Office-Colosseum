@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ALL_CHARACTERS, MSG, MIN_PLAYERS } from '@office-colosseum/shared';
 import { getSocket } from '../net/socket.js';
+import { getJoinName } from '../lib/playerIdentity.js';
 import { excelColors } from '../theme.js';
 import {
   ExcelMenuBar,
@@ -15,9 +16,7 @@ export default function Lobby({ onMatchStart, onBack }) {
 
   useEffect(() => {
     const doJoin = () => {
-      const sid = socket.id ?? '';
-      const suffix = sid ? sid.slice(0, 4) : Math.random().toString(36).slice(2, 6);
-      socket.emit(MSG.JOIN, { name: 'Player-' + suffix });
+      socket.emit(MSG.JOIN, { name: getJoinName() });
     };
     if (socket.connected) doJoin();
     else socket.once('connect', doJoin);
