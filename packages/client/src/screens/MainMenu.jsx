@@ -1,89 +1,153 @@
 import { useState, useMemo, useEffect } from 'react';
 import { MSG, getCharacterById } from '@office-colosseum/shared';
-import { excelColors } from '../theme.js';
-import { getStoredPlayerName, setPlayerName, PLAYER_NAME_MAX } from '../lib/playerIdentity.js';
-import { getSocket } from '../net/socket.js';
 import {
-  ExcelMenuBar,
-  ExcelToolbar,
-  ExcelSheetTabs,
-  ExcelStatusBar,
-} from '../components/ExcelChrome.jsx';
+  getStoredPlayerName, setPlayerName, getPlayerUuid, PLAYER_NAME_MAX,
+} from '../lib/playerIdentity.js';
+import { getSocket } from '../net/socket.js';
+import SheetWindow from '../components/SheetWindow.jsx';
 
-function todayStartMs() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
+function formatShortId(id) {
+  return id ? id.split('-')[1]?.slice(0, 4).toUpperCase() ?? id.slice(-4).toUpperCase() : '----';
 }
 
-function computeTodayStats(matches) {
-  const since = todayStartMs();
-  const today = matches.filter((m) => m.endedAt >= since);
+function formatDate(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}/${mm}/${dd}`;
+}
 
-  const charCount = {};
-  let catWins = 0;
-  let dogWins = 0;
-  for (const m of today) {
-    for (const p of m.participants) {
-      charCount[p.characterId] = (charCount[p.characterId] ?? 0) + 1;
-    }
-    const winner = m.participants.find((p) => p.isWinner);
-    if (winner) {
-      const winnerType = getCharacterById(winner.characterId)?.type;
-      if (winnerType === 'cat') catWins++;
-      else if (winnerType === 'dog') dogWins++;
-    }
+function computePlayerStats(records, uuid) {
+  if (!records || !uuid) return null;
+  const rec = records.players?.[uuid];
+  if (!rec) return null;
+  const winRate = rec.matches > 0 ? (rec.wins / rec.matches) * 100 : 0;
+  let favId = null, favCount = 0;
+  for (const [id, r] of Object.entries(rec.byCharacter ?? {})) {
+    if (r.matches > favCount) { favCount = r.matches; favId = id; }
   }
-
-  let topCharId = null;
-  let topCount = 0;
-  for (const [id, count] of Object.entries(charCount)) {
-    if (count > topCount) {
-      topCharId = id;
-      topCount = count;
-    }
-  }
-  const topCharName = topCharId ? getCharacterById(topCharId)?.name ?? topCharId : null;
-
-  const totalCamp = catWins + dogWins;
-  const dogRate = totalCamp ? (dogWins / totalCamp) * 100 : null;
-  const catRate = totalCamp ? (catWins / totalCamp) * 100 : null;
-
+  const favChar = favId ? getCharacterById(favId)?.name ?? favId : null;
   return {
-    matchesCount: today.length,
-    topCharName,
-    topCharCount: topCount,
-    dogRate,
-    catRate,
+    matches: rec.matches ?? 0,
+    winRate,
+    favChar,
+    favCount,
   };
 }
 
-const RECENT_FILES = [
-  { name: 'Q1_營收報表_v3.xlsx', date: '2026/04/18', size: '2.4 MB' },
-  { name: '人事成本分析_2026Q1.xlsx', date: '2026/04/15', size: '1.8 MB' },
-  { name: '庫存盤點表_final.xlsx', date: '2026/04/10', size: '956 KB' },
-  { name: '預算提案草稿.xlsx', date: '2026/04/07', size: '1.1 MB' },
+function computeRecentFiles(records, limit = 4) {
+  const matches = (records?.matches ?? []).slice().sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
+  return matches.slice(0, limit).map((m) => {
+    const date = new Date(m.endedAt ?? Date.now());
+    const q = Math.floor(date.getMonth() / 3) + 1;
+    const sheetId = formatShortId(m.id);
+    const participants = m.participants?.length ?? 0;
+    return {
+      name: `${date.getFullYear()}Q${q}_對戰紀錄_SHEET-${sheetId}.xlsx`,
+      date: formatDate(m.endedAt),
+      size: `${(participants * 0.3 + 0.8).toFixed(1)} MB`,
+      winnerName: m.winnerName ?? '—',
+    };
+  });
+}
+
+const TEMPLATES = [
+  {
+    id: 'online',
+    title: '連線對戰',
+    badge: 'ONLINE',
+    formula: '=VLOOKUP(ROOM, LOBBY, 2, FALSE)',
+    desc: '加入多人競技場，2–8 位同事共用一份工作表',
+  },
+  {
+    id: 'characters',
+    title: '角色資料庫',
+    badge: 'OFFLINE',
+    formula: '=QUERY(CHARACTERS, "SELECT *")',
+    desc: '瀏覽 20 位員工完整能力評估',
+  },
+  {
+    id: 'history',
+    title: '戰績報表',
+    badge: 'REPORT',
+    formula: '=PIVOT(MY_MATCHES)',
+    desc: '個人 KPI 儀表板與歷史對戰資料',
+  },
 ];
 
+function TemplateThumbnail({ id }) {
+  // 用純 SVG 為每種範本畫個簡化示意圖，避免任何 emoji 或彩色 PNG
+  const stripe = 'repeating-linear-gradient(135deg, var(--bg-paper-alt) 0 8px, var(--bg-paper) 8px 16px)';
+  if (id === 'online') {
+    return (
+      <div style={{ width: '100%', height: 120, background: stripe, border: '1px solid var(--line-soft)', position: 'relative' }}>
+        <svg viewBox="0 0 160 120" width="100%" height="100%" preserveAspectRatio="none">
+          {Array.from({ length: 10 }).map((_, i) => (
+            <line key={`h${i}`} x1="0" x2="160" y1={i * 12} y2={i * 12} stroke="var(--line-soft)" strokeWidth="0.5" />
+          ))}
+          {Array.from({ length: 14 }).map((_, i) => (
+            <line key={`v${i}`} y1="0" y2="120" x1={i * 12} x2={i * 12} stroke="var(--line-soft)" strokeWidth="0.5" />
+          ))}
+          {[[36, 36], [96, 48], [72, 84], [120, 72]].map(([x, y], i) => (
+            <rect key={i} x={x} y={y} width="10" height="10" fill={i === 0 ? 'var(--accent)' : 'var(--ink-soft)'} />
+          ))}
+          <rect x="60" y="60" width="44" height="20" fill="none" stroke="var(--accent-danger)" strokeWidth="1" strokeDasharray="3,2" />
+        </svg>
+      </div>
+    );
+  }
+  if (id === 'characters') {
+    return (
+      <div style={{ width: '100%', height: 120, background: 'var(--bg-input)', border: '1px solid var(--line-soft)' }}>
+        <svg viewBox="0 0 160 120" width="100%" height="100%" preserveAspectRatio="none">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <g key={i}>
+              <rect x="6" y={6 + i * 14} width="14" height="10" fill="var(--bg-cell-header)" stroke="var(--line-soft)" strokeWidth="0.5" />
+              <rect x="22" y={6 + i * 14} width="130" height="10" fill="var(--bg-paper)" stroke="var(--line-soft)" strokeWidth="0.5" />
+              <rect x="24" y={8 + i * 14} width={30 + (i * 11) % 60} height="6" fill={i % 2 === 0 ? 'var(--accent)' : 'var(--ink-soft)'} />
+            </g>
+          ))}
+        </svg>
+      </div>
+    );
+  }
+  // history — 折線圖
+  return (
+    <div style={{ width: '100%', height: 120, background: 'var(--bg-input)', border: '1px solid var(--line-soft)' }}>
+      <svg viewBox="0 0 160 120" width="100%" height="100%" preserveAspectRatio="none">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <line key={`g${i}`} x1="10" x2="154" y1={20 + i * 16} y2={20 + i * 16} stroke="var(--line-soft)" strokeWidth="0.5" />
+        ))}
+        <polyline
+          fill="none"
+          stroke="var(--accent)"
+          strokeWidth="1.6"
+          points="12,88 32,70 52,74 72,48 92,58 112,34 132,44 152,22"
+        />
+        {[ [12,88],[32,70],[52,74],[72,48],[92,58],[112,34],[132,44],[152,22] ].map(([x,y], i) => (
+          <circle key={i} cx={x} cy={y} r="2" fill="var(--accent)" />
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
-  const [hoveredCell, setHoveredCell] = useState(null);
   const [name, setName] = useState(getStoredPlayerName());
-  const [todayStats, setTodayStats] = useState(null);
+  const [records, setRecords] = useState(null);
+  const [hoveredTpl, setHoveredTpl] = useState(null);
   const placeholder = useMemo(
     () => `Player-${Math.random().toString(36).slice(2, 6)}`,
     [],
   );
+  const uuid = useMemo(() => getPlayerUuid(), []);
   const commitName = () => setPlayerName(name);
+  const displayName = name?.trim() || placeholder;
 
-  // ExcelMenuBar expects onNavigate — wire it to a no-op since routing is prop-driven
-  const noNav = () => {};
-
-  // 進入 MainMenu 就拉一次今日戰績；返回時也會 re-mount 自動更新
   useEffect(() => {
     const socket = getSocket();
-    const onRecords = (data) => {
-      setTodayStats(computeTodayStats(data?.matches ?? []));
-    };
+    const onRecords = (data) => setRecords(data ?? null);
     const request = () => socket.emit(MSG.GET_RECORDS);
     socket.on(MSG.RECORDS, onRecords);
     if (socket.connected) request();
@@ -94,201 +158,230 @@ export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
     };
   }, []);
 
+  const stats = computePlayerStats(records, uuid);
+  const recentFiles = computeRecentFiles(records, 4);
+
+  const handleTemplate = (id) => {
+    if (id === 'online') onStart?.();
+    else if (id === 'characters') onOpenCharacters?.();
+    else if (id === 'history') onOpenHistory?.();
+  };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: '"Microsoft JhengHei", "Noto Sans TC", sans-serif' }}>
-      <ExcelMenuBar currentSheet="MainMenu" onNavigate={noNav} />
-      <ExcelToolbar cellRef="A1" formulaText='=COLOSSEUM.LOBBY()' />
-
-      {/* Main body */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', background: excelColors.cellBg }}>
-        {/* Left panel */}
-        <div style={{
-          width: 280, background: excelColors.accent, color: '#F5F0E8',
-          padding: '40px 24px', display: 'flex', flexDirection: 'column',
-        }}>
-          <div style={{ fontSize: 28, fontWeight: 700, marginBottom: 4, letterSpacing: 2 }}>
-            HiiiCalc
-          </div>
-          <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 40 }}>
-            v3.2.1 — 試算表管理工具
-          </div>
-
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 16, opacity: 0.8 }}>
-            快速開始
-          </div>
-
-          {[
-            { icon: '\u26D4', label: '連線對戰 / Play Online', desc: '加入多人競技場', isMain: true, onClick: onStart },
-            { icon: '\uD83D\uDCCA', label: '角色資料庫', desc: '查看所有角色能力值', isMain: false, onClick: onOpenCharacters },
-            { icon: '\uD83D\uDCC8', label: '戰績報表', desc: '歷史對戰數據分析', isMain: false, onClick: onOpenHistory },
-          ].map((item, i) => (
-            <div
-              key={i}
-              style={{
-                padding: '12px 16px', marginBottom: 8, borderRadius: 4, cursor: 'pointer',
-                background: hoveredCell === `menu${i}`
-                  ? (item.isMain ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.15)')
-                  : (item.isMain ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)'),
-                border: item.isMain ? '1px solid rgba(255,255,255,0.3)' : '1px solid transparent',
-                transition: 'background 0.2s',
-              }}
-              onMouseEnter={() => setHoveredCell(`menu${i}`)}
-              onMouseLeave={() => setHoveredCell(null)}
-              onClick={item.onClick}
-            >
-              <div style={{ fontSize: 14, fontWeight: item.isMain ? 700 : 600 }}>
-                {item.label}
-              </div>
-              <div style={{ fontSize: 10, opacity: 0.6, marginTop: 2 }}>{item.desc}</div>
+    <SheetWindow
+      fileName="新增工作表.xlsx — 新增"
+      cellRef="A1"
+      formula={`=WELCOME("${displayName}")`}
+      tabs={[
+        { id: 'new', label: '新增' },
+        { id: 'open', label: '開啟' },
+        { id: 'main', label: '主選單' },
+      ]}
+      activeTab="new"
+      onTabSelect={(id) => {
+        if (id === 'open') onStart?.();
+      }}
+      statusLeft="就緒 — 請選擇範本以建立新檔案"
+      statusRight={stats
+        ? `範本數: 3 | 總場次: ${stats.matches} | 常用: ${stats.favChar ?? '—'}`
+        : '範本數: 3 | 尚無戰績'}
+      fullscreen
+    >
+      <div style={{
+        flex: 1, overflow: 'auto',
+        padding: '32px 48px',
+        display: 'flex', flexDirection: 'column', gap: 32,
+        background: 'var(--bg-paper)',
+      }}>
+        {/* Hero 區：左右兩欄 */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 24, alignItems: 'stretch' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{
+              fontSize: 42, fontWeight: 600, color: 'var(--ink)',
+              letterSpacing: 1, lineHeight: 1.15, marginBottom: 12,
+            }}>
+              歡迎回來，<span style={{ fontWeight: 300 }}>{displayName}。</span>
             </div>
-          ))}
+            <div style={{ fontSize: 13, color: 'var(--ink-muted)', lineHeight: 1.7, maxWidth: 560 }}>
+              選擇一個範本以開始新的工作表。
+              你的上一份檔案
+              <span style={{ color: 'var(--accent-link)', margin: '0 4px' }}>
+                「{recentFiles[0]?.name ?? 'Q1_營收預測_v3.xlsx'}」
+              </span>
+              已自動儲存於雲端。按 Ctrl+N 開新檔，或隨時按 Esc 切換至季度報表。
+            </div>
+          </div>
 
-          <div style={{ flex: 1 }} />
-          <div style={{ fontSize: 9, opacity: 0.4 }}>© 2026 Hiii Corp. 版權所有</div>
-        </div>
-
-        {/* Right panel */}
-        <div style={{ flex: 1, padding: '40px 48px', overflowY: 'auto' }}>
-          {/* User name cell — 顯示 / 儲存使用者在連線時要用的名字 */}
+          {/* Player Card */}
           <div style={{
-            border: `1px solid ${excelColors.cellBorder}`, borderRadius: 4,
-            background: excelColors.headerBg, padding: '10px 12px', marginBottom: 20,
+            background: 'var(--bg-paper-alt)',
+            border: '1px solid var(--line-soft)',
+            padding: '18px 20px',
+            display: 'flex', flexDirection: 'column', gap: 12,
           }}>
             <div style={{
-              fontSize: 11, fontWeight: 600, color: excelColors.accent,
-              display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6,
+              fontSize: 10, color: 'var(--ink-muted)',
+              display: 'flex', alignItems: 'center', gap: 6,
+              letterSpacing: 1,
             }}>
               <span style={{
-                background: excelColors.accent, color: '#F5F0E8',
-                padding: '0 5px', borderRadius: 2, fontSize: 9,
+                background: 'var(--accent)', color: 'var(--bg-paper)',
+                padding: '1px 6px', fontSize: 9, fontFamily: 'var(--font-mono)',
               }}>fx</span>
-              <span>使用者名稱 / Player Name</span>
-            </div>
-            <input
-              value={name}
-              placeholder={placeholder}
-              maxLength={PLAYER_NAME_MAX}
-              onChange={(e) => setName(e.target.value)}
-              onBlur={commitName}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') { commitName(); e.currentTarget.blur(); }
-              }}
-              style={{
-                width: '100%', padding: '6px 8px', boxSizing: 'border-box',
-                border: `1px solid ${excelColors.cellBorder}`,
-                background: excelColors.cellBg, fontSize: 13,
-                fontFamily: 'Consolas, "Microsoft JhengHei", monospace',
-                outline: 'none', borderRadius: 2,
-              }}
-            />
-            <div style={{ fontSize: 9, color: excelColors.textLight, marginTop: 4, lineHeight: 1.5 }}>
-              * 最多 {PLAYER_NAME_MAX} 字；按 Enter 或離開欄位自動儲存。留空會使用預設 {placeholder}
-              <br />
-              * 戰績以此瀏覽器為準；換瀏覽器或無痕模式會視為新身分
-            </div>
-          </div>
-
-          <div style={{ fontSize: 18, fontWeight: 600, color: excelColors.text, marginBottom: 24 }}>
-            最近開啟的檔案
-          </div>
-
-          {/* File table */}
-          <div style={{ border: `1px solid ${excelColors.cellBorder}`, borderRadius: 4, overflow: 'hidden' }}>
-            {/* Header row */}
-            <div style={{
-              display: 'grid', gridTemplateColumns: '1fr 120px 80px',
-              background: excelColors.headerBg, padding: '8px 12px',
-              fontSize: 11, fontWeight: 600, color: excelColors.textLight,
-              borderBottom: `1px solid ${excelColors.cellBorder}`,
-            }}>
-              <span>名稱</span>
-              <span>修改日期</span>
-              <span>大小</span>
+              <span>使用者身分 / PLAYER CARD</span>
             </div>
 
-            {RECENT_FILES.map((f, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'grid', gridTemplateColumns: '1fr 120px 80px',
-                  padding: '10px 12px', fontSize: 12, color: excelColors.text,
-                  borderBottom: i < RECENT_FILES.length - 1 ? `1px solid ${excelColors.cellBorder}` : 'none',
-                  cursor: 'pointer',
-                  background: hoveredCell === `file${i}` ? excelColors.selectedCell : 'transparent',
-                  transition: 'background 0.15s',
-                }}
-                onMouseEnter={() => setHoveredCell(`file${i}`)}
-                onMouseLeave={() => setHoveredCell(null)}
-                onClick={onStart}
-              >
-                <span>{f.name}</span>
-                <span style={{ color: excelColors.textLight }}>{f.date}</span>
-                <span style={{ color: excelColors.textLight }}>{f.size}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{
+                width: 48, height: 48,
+                background: 'var(--bg-chrome)',
+                border: '1px solid var(--line)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: 'var(--font-mono)', fontSize: 20, color: 'var(--ink-soft)',
+              }}>
+                {displayName.slice(0, 1).toUpperCase()}
               </div>
-            ))}
-          </div>
-
-          {/* Stats panel */}
-          <div style={{
-            marginTop: 40, padding: 20, background: excelColors.headerBg,
-            borderRadius: 6, border: `1px solid ${excelColors.cellBorder}`,
-          }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: excelColors.accent, marginBottom: 12 }}>
-              今日競技場概況
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {displayName}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>
+                  ID: {uuid.slice(0, 8)}
+                </div>
+              </div>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11, color: excelColors.textLight }}>
-              {(() => {
-                const empty = !todayStats || todayStats.matchesCount === 0;
-                const items = [
-                  {
-                    label: '今日使用率最高',
-                    value: empty
-                      ? '—'
-                      : `${todayStats.topCharName ?? '—'}（${todayStats.topCharCount} 次）`,
-                  },
-                  {
-                    label: '今日對戰',
-                    value: empty ? '—' : `${todayStats.matchesCount} 場`,
-                  },
-                  {
-                    label: '狗方勝率',
-                    value:
-                      empty || todayStats.dogRate == null
-                        ? '—'
-                        : `${todayStats.dogRate.toFixed(1)}%`,
-                  },
-                  {
-                    label: '貓方勝率',
-                    value:
-                      empty || todayStats.catRate == null
-                        ? '—'
-                        : `${todayStats.catRate.toFixed(1)}%`,
-                  },
-                ];
-                return items.map((it, i) => (
-                  <div key={i} style={{
-                    padding: '8px 12px', background: excelColors.cellBg,
-                    borderRadius: 4, border: `1px solid ${excelColors.cellBorder}`,
-                  }}>
-                    <span style={{ color: excelColors.textLight }}>{it.label}: </span>
-                    <span style={{ color: excelColors.text, fontWeight: 600 }}>{it.value}</span>
+
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6,
+              fontFamily: 'var(--font-mono)', fontSize: 11,
+            }}>
+              {[
+                { label: '場次', value: stats?.matches ?? 0 },
+                { label: '勝率', value: stats ? `${stats.winRate.toFixed(0)}%` : '—' },
+                { label: '常用', value: stats?.favChar ?? '—' },
+              ].map((m, i) => (
+                <div key={i} style={{
+                  background: 'var(--bg-input)', border: '1px solid var(--line-soft)',
+                  padding: '6px 8px',
+                }}>
+                  <div style={{ fontSize: 9, color: 'var(--ink-muted)' }}>{m.label}</div>
+                  <div style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {m.value}
                   </div>
-                ));
-              })()}
+                </div>
+              ))}
+            </div>
+
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              fontSize: 10, color: 'var(--ink-muted)', marginTop: 4,
+            }}>
+              <span>編輯名稱</span>
+              <input
+                value={name}
+                placeholder={placeholder}
+                maxLength={PLAYER_NAME_MAX}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={commitName}
+                onKeyDown={(e) => { if (e.key === 'Enter') { commitName(); e.currentTarget.blur(); } }}
+                style={{
+                  flex: 1,
+                  background: 'var(--bg-input)',
+                  border: '1px solid var(--line-soft)',
+                  color: 'var(--ink)',
+                  fontFamily: 'var(--font-mono)', fontSize: 11,
+                  padding: '4px 6px', outline: 'none',
+                }}
+              />
             </div>
           </div>
         </div>
-      </div>
 
-      <ExcelSheetTabs
-        sheets={[
-          { id: 'menu', label: '主選單' },
-          { id: 'lobby', label: '連線大廳' },
-        ]}
-        active="menu"
-        onSelect={(id) => { if (id === 'lobby') onStart(); }}
-      />
-      <ExcelStatusBar stats="就緒 — 點選「連線對戰」進入多人競技場" />
-    </div>
+        {/* 三張大範本縮圖 */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+          {TEMPLATES.map((tpl) => (
+            <div
+              key={tpl.id}
+              onMouseEnter={() => setHoveredTpl(tpl.id)}
+              onMouseLeave={() => setHoveredTpl(null)}
+              onClick={() => handleTemplate(tpl.id)}
+              style={{
+                background: 'var(--bg-paper-alt)',
+                border: `1px solid ${hoveredTpl === tpl.id ? 'var(--accent)' : 'var(--line-soft)'}`,
+                padding: 14,
+                cursor: 'pointer',
+                display: 'flex', flexDirection: 'column', gap: 10,
+                transition: 'border-color 0.1s',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)' }}>{tpl.title}</div>
+                <div style={{
+                  fontSize: 9, fontFamily: 'var(--font-mono)',
+                  color: 'var(--bg-paper)', background: 'var(--accent)',
+                  padding: '1px 6px', letterSpacing: 1,
+                }}>{tpl.badge}</div>
+              </div>
+              <TemplateThumbnail id={tpl.id} />
+              <div style={{ fontSize: 11, color: 'var(--ink-muted)', lineHeight: 1.5 }}>
+                {tpl.desc}
+              </div>
+              <div style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10,
+                color: 'var(--accent-link)',
+                borderTop: '1px dashed var(--line-soft)',
+                paddingTop: 6,
+              }}>
+                {tpl.formula}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* 最近檔案 + 快捷鍵 */}
+        <div style={{
+          border: '1px solid var(--line-soft)',
+          background: 'var(--bg-input)',
+        }}>
+          <div style={{
+            padding: '8px 12px',
+            background: 'var(--bg-cell-header)',
+            borderBottom: '1px solid var(--line-soft)',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600,
+          }}>
+            <span>最近開啟的檔案</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-muted)' }}>
+              Ctrl+N 新增 / Ctrl+O 開啟 / Esc 隱藏視窗
+            </span>
+          </div>
+          {recentFiles.length === 0 ? (
+            <div style={{ padding: '14px 12px', fontSize: 11, color: 'var(--ink-muted)' }}>
+              #N/A — 尚無近期檔案，完成一場對戰後會在此顯示
+            </div>
+          ) : (
+            recentFiles.map((f, i) => (
+              <div
+                key={i}
+                onClick={() => onOpenHistory?.()}
+                style={{
+                  display: 'grid', gridTemplateColumns: '1fr 120px 80px 120px',
+                  padding: '8px 12px', fontSize: 11,
+                  borderBottom: i < recentFiles.length - 1 ? '1px solid var(--line-soft)' : 'none',
+                  cursor: 'pointer',
+                  color: 'var(--ink)',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                <span>{f.name}</span>
+                <span style={{ color: 'var(--ink-muted)' }}>{f.date}</span>
+                <span style={{ color: 'var(--ink-muted)' }}>{f.size}</span>
+                <span style={{ color: 'var(--ink-soft)', textAlign: 'right' }}>勝者: {f.winnerName}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </SheetWindow>
   );
 }

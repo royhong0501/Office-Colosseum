@@ -1,258 +1,347 @@
 import { getSocket } from '../net/socket.js';
-import { getCharacterById } from '@office-colosseum/shared';
-import { excelColors } from '../theme.js';
+import { getCharacterById, TICK_MS } from '@office-colosseum/shared';
+import SheetWindow from '../components/SheetWindow.jsx';
 
-const cell = (content, style = {}) => (
-  <td style={{
-    border: `1px solid ${excelColors.cellBorder}`,
-    padding: '3px 8px',
-    fontFamily: 'Consolas, "Microsoft JhengHei", monospace',
-    fontSize: 12,
-    color: excelColors.text,
-    whiteSpace: 'nowrap',
-    ...style,
-  }}>{content}</td>
-);
+function formatDuration(ticks) {
+  const sec = Math.floor((ticks * TICK_MS) / 1000);
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function formatTimestamp(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function Stat({ label, value, emphasize }) {
+  return (
+    <div style={{
+      background: 'var(--bg-input)',
+      border: '1px solid var(--line-soft)',
+      padding: '12px 14px',
+      display: 'flex', flexDirection: 'column', gap: 4,
+    }}>
+      <div style={{ fontSize: 10, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)', letterSpacing: 0.5 }}>
+        {label}
+      </div>
+      <div style={{
+        fontSize: 26, fontWeight: 600, color: emphasize ? 'var(--accent)' : 'var(--ink)',
+        fontFamily: 'var(--font-mono)',
+      }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function DmgBar({ value, max }) {
+  const pct = max > 0 ? (value / max) * 100 : 0;
+  return (
+    <div style={{
+      position: 'relative', height: 12,
+      background: 'var(--bg-paper-alt)',
+      border: '1px solid var(--line-soft)',
+    }}>
+      <div style={{
+        position: 'absolute', top: 0, left: 0, bottom: 0,
+        width: `${pct}%`,
+        background: 'var(--accent)',
+      }} />
+    </div>
+  );
+}
 
 export default function GameOver({ winnerId, summary, players, onBack }) {
   const selfId = getSocket()?.id;
   const isSelfWinner = selfId && selfId === winnerId;
 
-  // Build rows sorted by dmgDealt descending
   const rows = Object.entries(summary ?? {})
     .map(([pid, stats]) => {
       const player = players?.[pid];
       const char = getCharacterById(player?.characterId);
       return {
         pid,
-        name: char?.name ?? pid.slice(0, 6),
+        displayName: pid.startsWith('bot-') ? `Bot-${pid.slice(-2)}` : pid.slice(0, 6).toUpperCase(),
+        charName: char?.name ?? '#N/A',
         charNameEn: char?.nameEn ?? '',
-        dmgDealt: stats.dmgDealt ?? 0,
-        dmgTaken: stats.dmgTaken ?? 0,
-        survivedTicks: stats.survivedTicks ?? 0,
+        type: char?.type ?? null,
+        dmgDealt: stats?.dmgDealt ?? 0,
+        dmgTaken: stats?.dmgTaken ?? 0,
+        survivedTicks: stats?.survivedTicks ?? 0,
         isSelf: pid === selfId,
         isWinner: pid === winnerId,
       };
     })
-    .sort((a, b) => b.dmgDealt - a.dmgDealt);
+    .sort((a, b) => {
+      if (a.isWinner !== b.isWinner) return a.isWinner ? -1 : 1;
+      return b.dmgDealt - a.dmgDealt;
+    });
 
-  const winnerName = (() => {
-    if (!winnerId) return null;
-    const p = players?.[winnerId];
-    const char = getCharacterById(p?.characterId);
-    return char?.name ?? winnerId.slice(0, 6);
-  })();
+  const maxDmg = rows.reduce((m, r) => Math.max(m, r.dmgDealt), 0);
+  const totalDmg = rows.reduce((s, r) => s + r.dmgDealt, 0);
+  const avgDmg = rows.length ? Math.round(totalDmg / rows.length) : 0;
+  const maxSurvived = rows.reduce((m, r) => Math.max(m, r.survivedTicks), 0);
+
+  const winner = rows.find((r) => r.isWinner);
+  const me = rows.find((r) => r.isSelf);
+  const mvp = rows.length ? rows.slice().sort((a, b) => b.dmgDealt - a.dmgDealt)[0] : null;
+
+  const dogSurvived = rows.filter((r) => r.type === 'dog' && r.survivedTicks > 0).length;
+  const catSurvived = rows.filter((r) => r.type === 'cat' && r.survivedTicks > 0).length;
+
+  const shortId = `SH-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  const timestamp = formatTimestamp();
 
   return (
-    <div style={{
-      height: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      background: excelColors.cellBg,
-      fontFamily: '"Microsoft JhengHei", "Noto Sans TC", Calibri, sans-serif',
-      overflow: 'hidden',
-    }}>
-      {/* Title bar */}
-      <div style={{
-        background: '#217346',
-        color: '#FFFFFF',
-        padding: '4px 12px',
-        fontSize: 13,
-        fontWeight: 600,
-        letterSpacing: 0.5,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        flexShrink: 0,
-      }}>
-        <span>📊</span>
-        <span>戰績報表.xlsx — HiiiColosseum</span>
-        <span style={{ marginLeft: 'auto', fontSize: 11, opacity: 0.8 }}>✕</span>
-      </div>
+    <SheetWindow
+      fileName={`本週工作成果_${shortId}_彙整.xlsx`}
+      cellRef="A1"
+      formula={`=SUMIFS(MATCH_LOG, PLAYER="${me?.displayName ?? '—'}")`}
+      tabs={[
+        { id: 'summary', label: '結算' },
+        { id: 'detail', label: '個人表現' },
+        { id: 'all', label: '全員成績' },
+      ]}
+      activeTab="summary"
+      statusLeft={`完成 — 匹配結束於 ${timestamp}`}
+      statusRight={`存活最久: ${formatDuration(maxSurvived)} | 總傷害: ${totalDmg.toLocaleString()} | 平均: ${avgDmg.toLocaleString()}`}
+      fullscreen
+    >
+      <div style={{ flex: 1, overflow: 'auto', padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-      {/* Menu bar */}
-      <div style={{
-        background: excelColors.menuBg,
-        borderBottom: `1px solid ${excelColors.menuBorder}`,
-        padding: '3px 8px',
-        fontSize: 12,
-        color: excelColors.text,
-        display: 'flex',
-        gap: 12,
-        flexShrink: 0,
-      }}>
-        {['檔案(F)', '編輯(E)', '檢視(V)', '插入(I)', '格式(O)', '競技場(C)', '說明(H)'].map(m => (
-          <span key={m} style={{ cursor: 'default', padding: '1px 4px' }}>{m}</span>
-        ))}
-      </div>
-
-      {/* Formula bar */}
-      <div style={{
-        background: excelColors.toolbarBg,
-        borderBottom: `1px solid ${excelColors.cellBorder}`,
-        padding: '3px 8px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-        fontSize: 12,
-        flexShrink: 0,
-      }}>
+        {/* ==== 頂部 Banner ==== */}
         <div style={{
-          width: 60, padding: '1px 6px', background: excelColors.formulaBg,
-          border: `1px solid ${excelColors.cellBorder}`, textAlign: 'center',
-          fontFamily: 'Consolas, monospace', fontSize: 11,
-        }}>A1</div>
-        <span style={{ color: excelColors.textLight, fontStyle: 'italic' }}>fx</span>
-        <div style={{
-          flex: 1, padding: '1px 6px', background: excelColors.formulaBg,
-          border: `1px solid ${excelColors.cellBorder}`,
-          fontFamily: 'Consolas, monospace', fontSize: 11,
-        }}>=MATCH.RESULT(winnerId, summary)</div>
-      </div>
-
-      {/* Main content area */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-        {/* Winner banner */}
-        <div style={{
-          border: `2px solid ${isSelfWinner ? excelColors.greenAccent : excelColors.accentLight}`,
-          borderRadius: 3,
-          padding: '16px 24px',
-          background: isSelfWinner ? '#EEF7EC' : excelColors.headerBg,
-          textAlign: 'center',
+          display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr',
+          gap: 16,
+          border: '1px solid var(--line-soft)',
+          background: 'var(--bg-paper-alt)',
+          padding: 20,
         }}>
-          {winnerId == null ? (
-            <div style={{ fontSize: 28, fontWeight: 700, color: excelColors.text }}>平局 / DRAW</div>
-          ) : isSelfWinner ? (
-            <>
-              <div style={{ fontSize: 36, fontWeight: 900, color: excelColors.greenAccent, letterSpacing: 2 }}>
-                你贏了 / YOU WIN
-              </div>
-              <div style={{ fontSize: 14, color: excelColors.textLight, marginTop: 6 }}>
-                🏆 恭喜！戰鬥報表已自動存檔。
-              </div>
-            </>
-          ) : (
-            <>
-              <div style={{ fontSize: 28, fontWeight: 700, color: excelColors.accent }}>
-                勝者：{winnerName}
-              </div>
-              <div style={{ fontSize: 13, color: excelColors.textLight, marginTop: 6 }}>
-                失敗者小心點… 下次記得帶午餐來賄賂勝者。
-              </div>
-            </>
-          )}
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>
+              H1 · 績效評語
+            </div>
+            <div style={{
+              fontSize: 32, fontWeight: 700, marginTop: 6,
+              color: winnerId == null ? 'var(--ink)'
+                : isSelfWinner ? 'var(--accent)' : 'var(--accent-danger)',
+            }}>
+              {winnerId == null ? '流會 / DRAW' : isSelfWinner ? '績效達標 ✓' : '未達標 ✗'}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>
+              {winnerId == null
+                ? '無人存活，請下次安排人力冗餘'
+                : isSelfWinner
+                ? `${winner?.type === 'dog' ? '狗方' : winner?.type === 'cat' ? '貓方' : ''} = WIN · 本週目標達成率 100%`
+                : `勝者 ${winner?.displayName} (${winner?.charName}) · 建議檢討執行策略`}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>
+              工作表編號
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 600, marginTop: 6, fontFamily: 'var(--font-mono)', color: 'var(--ink)' }}>
+              {shortId}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
+              建立時間: {timestamp}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', fontFamily: 'var(--font-mono)' }}>
+              總時長: {formatDuration(maxSurvived)}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>
+              陣營存活人數
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
+              <span style={{ fontSize: 32, fontWeight: 700, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
+                {dogSurvived}
+              </span>
+              <span style={{ color: 'var(--ink-muted)' }}>:</span>
+              <span style={{ fontSize: 32, fontWeight: 700, color: 'var(--accent-danger)', fontFamily: 'var(--font-mono)' }}>
+                {catSurvived}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 4 }}>
+              狗方 : 貓方 · 存活計分
+            </div>
+          </div>
         </div>
 
-        {/* Summary table */}
+        {/* ==== 中段 MVP 卡 + 你的表現 ==== */}
+        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 16 }}>
+          {/* MVP 便利貼 */}
+          <div style={{
+            background: 'var(--sticky)',
+            border: '1px solid var(--line-soft)',
+            padding: 16,
+            display: 'flex', flexDirection: 'column', gap: 8,
+          }}>
+            <div style={{
+              fontSize: 10, color: 'var(--ink-muted)',
+              fontFamily: 'var(--font-mono)', letterSpacing: 1,
+            }}>
+              便利貼 · MVP — 最高輸出
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink)' }}>
+              {mvp?.displayName ?? '—'}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
+              {mvp ? `${mvp.charName} · ${mvp.charNameEn}` : ''}
+            </div>
+            <div style={{
+              fontSize: 11, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)',
+              borderTop: '1px dashed var(--line-soft)', paddingTop: 8, marginTop: 4,
+            }}>
+              傷害輸出: <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{mvp?.dmgDealt?.toLocaleString() ?? 0}</span>
+              <br />存活: <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{formatDuration(mvp?.survivedTicks ?? 0)}</span>
+            </div>
+          </div>
+
+          {/* 你的表現 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>
+              你的表現 / SELF KPI
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+              <Stat label="傷害輸出" value={me?.dmgDealt?.toLocaleString() ?? 0} emphasize />
+              <Stat label="傷害承受" value={me?.dmgTaken?.toLocaleString() ?? 0} />
+              <Stat label="存活時間" value={me ? formatDuration(me.survivedTicks) : '—'} />
+              <Stat
+                label="結算"
+                value={winnerId == null ? '平局' : me?.isWinner ? '勝' : '負'}
+                emphasize={me?.isWinner}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ==== 全員成績表 ==== */}
         <div>
           <div style={{
-            fontSize: 11, color: excelColors.textLight, marginBottom: 4,
-            fontFamily: 'Consolas, monospace',
+            fontSize: 11, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)',
+            marginBottom: 4,
           }}>
-            =SORT(FILTER(戰績資料表, 擊傷&gt;0), 擊傷, -1)
+            =SORT(FILTER(成績表, dmgDealt≥0), isWinner DESC, dmgDealt DESC)
           </div>
-          <table style={{
-            borderCollapse: 'collapse',
-            width: '100%',
-            tableLayout: 'fixed',
-          }}>
-            <colgroup>
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '14%' }} />
-              <col style={{ width: '16%' }} />
-              <col style={{ width: '14%' }} />
-              <col style={{ width: '14%' }} />
-              <col style={{ width: '16%' }} />
-              <col style={{ width: '18%' }} />
-            </colgroup>
-            <thead>
-              <tr style={{ background: excelColors.headerBg }}>
-                {cell('#', { fontWeight: 700, textAlign: 'center' })}
-                {cell('Player', { fontWeight: 700 })}
-                {cell('角色', { fontWeight: 700 })}
-                {cell('擊傷 dmgDealt', { fontWeight: 700, textAlign: 'right' })}
-                {cell('受傷 dmgTaken', { fontWeight: 700, textAlign: 'right' })}
-                {cell('存活 Tick', { fontWeight: 700, textAlign: 'right' })}
-                {cell('狀態', { fontWeight: 700, textAlign: 'center' })}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => {
-                const rowBg = row.isSelf
-                  ? excelColors.selectedCell
-                  : i % 2 === 0 ? excelColors.cellBg : '#F8F4EF';
-                const s = { background: rowBg };
-                return (
-                  <tr key={row.pid}>
-                    {cell(i + 1, { ...s, textAlign: 'center', color: excelColors.textLight })}
-                    {cell(
-                      <span>
-                        {row.isWinner && <span style={{ color: excelColors.greenAccent }}>🏆 </span>}
-                        {row.isSelf && !row.isWinner && <span style={{ color: excelColors.blueAccent }}>▶ </span>}
-                        {row.pid.slice(0, 8)}
-                        {row.isSelf && <span style={{ color: excelColors.textLight }}> (你)</span>}
-                      </span>,
-                      { ...s, fontFamily: 'Consolas, monospace', fontSize: 11 }
-                    )}
-                    {cell(`${row.name}${row.charNameEn ? ` (${row.charNameEn})` : ''}`, s)}
-                    {cell(row.dmgDealt.toLocaleString(), { ...s, textAlign: 'right', color: row.dmgDealt > 0 ? excelColors.redAccent : excelColors.text, fontWeight: row.isWinner ? 700 : 400 })}
-                    {cell(row.dmgTaken.toLocaleString(), { ...s, textAlign: 'right' })}
-                    {cell(row.survivedTicks.toLocaleString(), { ...s, textAlign: 'right', color: excelColors.blueAccent })}
-                    {cell(
-                      row.isWinner ? '🏆 勝者' : '💀 淘汰',
-                      { ...s, textAlign: 'center', color: row.isWinner ? excelColors.greenAccent : excelColors.textLight }
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div style={{ border: '1px solid var(--line-soft)' }}>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '36px 72px 1fr 1fr 90px 90px 80px 56px',
+              background: 'var(--bg-cell-header)',
+              borderBottom: '1px solid var(--line-soft)',
+              fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600,
+            }}>
+              {['#', '編號', '暱稱', '角色 / 陣營', '傷害輸出', '傷害承受', '存活', '備註'].map((h, i) => (
+                <div key={i} style={{
+                  padding: '6px 8px',
+                  borderRight: i < 7 ? '1px solid var(--line-soft)' : 'none',
+                  textAlign: i >= 4 && i <= 6 ? 'right' : 'left',
+                }}>{h}</div>
+              ))}
+            </div>
+            {rows.map((row, i) => (
+              <div
+                key={row.pid}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '36px 72px 1fr 1fr 90px 90px 80px 56px',
+                  fontSize: 11, color: 'var(--ink)',
+                  background: row.isSelf ? 'var(--bg-paper-alt)' : (i % 2 === 0 ? 'var(--bg-paper)' : 'var(--bg-input)'),
+                  borderBottom: '1px solid var(--line-soft)',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)', color: 'var(--ink-muted)', textAlign: 'center' }}>{i + 1}</div>
+                <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)', color: 'var(--ink-muted)' }}>
+                  SH-{row.pid.slice(0, 4).toUpperCase()}
+                </div>
+                <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)', display: 'flex', gap: 4, alignItems: 'center' }}>
+                  {row.isWinner && <span style={{ color: 'var(--accent)', fontWeight: 700 }}>★</span>}
+                  <span style={{ fontWeight: row.isSelf ? 700 : 400 }}>{row.displayName}</span>
+                  {row.isSelf && <span style={{ color: 'var(--ink-muted)' }}>(你)</span>}
+                </div>
+                <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)' }}>
+                  {row.charName} <span style={{ color: 'var(--ink-muted)' }}>· {row.type === 'dog' ? '狗方' : row.type === 'cat' ? '貓方' : '—'}</span>
+                </div>
+                <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)', textAlign: 'right' }}>
+                  <div style={{ marginBottom: 2 }}>{row.dmgDealt.toLocaleString()}</div>
+                  <DmgBar value={row.dmgDealt} max={maxDmg} />
+                </div>
+                <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)', textAlign: 'right', color: 'var(--ink-soft)' }}>
+                  {row.dmgTaken.toLocaleString()}
+                </div>
+                <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)', textAlign: 'right', color: 'var(--accent-link)' }}>
+                  {formatDuration(row.survivedTicks)}
+                </div>
+                <div style={{ padding: '5px 8px', color: row.isWinner ? 'var(--accent)' : 'var(--ink-muted)', textAlign: 'center' }}>
+                  {row === mvp ? 'MVP' : row.isWinner ? '勝者' : '淘汰'}
+                </div>
+              </div>
+            ))}
+            {/* 合計列 */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '36px 72px 1fr 1fr 90px 90px 80px 56px',
+              fontSize: 11, color: 'var(--ink-soft)',
+              background: 'var(--bg-cell-header)',
+              fontFamily: 'var(--font-mono)',
+              fontWeight: 600,
+            }}>
+              <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)', textAlign: 'center' }}>Σ</div>
+              <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)' }}>合計</div>
+              <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)', color: 'var(--ink-muted)' }}>=SUM</div>
+              <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)', color: 'var(--ink-muted)' }}>=AVERAGE</div>
+              <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)', textAlign: 'right' }}>{totalDmg.toLocaleString()}</div>
+              <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)', textAlign: 'right' }}>
+                {rows.reduce((s, r) => s + r.dmgTaken, 0).toLocaleString()}
+              </div>
+              <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)', textAlign: 'right' }}>
+                {formatDuration(maxSurvived)}
+              </div>
+              <div style={{ padding: '5px 8px', textAlign: 'center' }}>—</div>
+            </div>
+          </div>
         </div>
 
-        {/* Back button */}
-        <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 12 }}>
+        {/* ==== 底部按鈕 ==== */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
             onClick={onBack}
             style={{
-              padding: '8px 24px',
-              background: excelColors.accent,
-              color: '#FDFBF7',
-              border: 'none',
-              borderRadius: 3,
+              padding: '7px 20px',
+              background: 'var(--accent)',
+              color: 'var(--bg-paper)',
+              border: '1px solid var(--line)',
+              fontSize: 12, fontWeight: 600,
               cursor: 'pointer',
-              fontSize: 13,
-              fontFamily: '"Microsoft JhengHei", sans-serif',
-              fontWeight: 600,
-              letterSpacing: 0.5,
+              fontFamily: 'var(--font-ui)',
             }}
-            onMouseEnter={e => e.target.style.background = excelColors.accentLight}
-            onMouseLeave={e => e.target.style.background = excelColors.accent}
           >
-            ← 返回大廳
+            再來一場
           </button>
-          <span style={{ fontSize: 11, color: excelColors.textLight, alignSelf: 'center' }}>
-            (回到大廳後可重新選角並就緒)
+          <button
+            onClick={onBack}
+            style={{
+              padding: '6px 16px',
+              background: 'var(--bg-input)',
+              color: 'var(--ink-soft)',
+              border: '1px solid var(--line-soft)',
+              fontSize: 11,
+              cursor: 'pointer',
+              fontFamily: 'var(--font-ui)',
+            }}
+          >
+            回主選單
+          </button>
+          <div style={{ flex: 1 }} />
+          <span style={{ fontSize: 10, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>
+            匯出 PDF · 儲存分享（未啟用）
           </span>
         </div>
       </div>
-
-      {/* Status bar */}
-      <div style={{
-        background: excelColors.accent,
-        color: '#F5F0E8',
-        padding: '2px 12px',
-        fontSize: 10,
-        display: 'flex',
-        justifyContent: 'space-between',
-        flexShrink: 0,
-      }}>
-        <span>就緒</span>
-        <span>
-          平均擊傷: {rows.length ? Math.round(rows.reduce((s, r) => s + r.dmgDealt, 0) / rows.length).toLocaleString() : 0} | 個數: {rows.length} | 加總: {rows.reduce((s, r) => s + r.dmgDealt, 0).toLocaleString()}
-        </span>
-        <span>100%</span>
-      </div>
-    </div>
+    </SheetWindow>
   );
 }

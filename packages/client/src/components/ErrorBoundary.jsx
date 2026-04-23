@@ -1,5 +1,4 @@
 import React from 'react';
-import { excelColors } from '../theme.js';
 
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -27,23 +26,22 @@ export default class ErrorBoundary extends React.Component {
           alignItems: 'center',
           justifyContent: 'center',
           gap: 16,
-          background: excelColors.cellBg,
-          fontFamily: '"Microsoft JhengHei","Noto Sans TC",sans-serif',
-          color: excelColors.text,
+          background: 'var(--bg-paper)',
+          fontFamily: 'var(--font-ui)',
+          color: 'var(--ink)',
           padding: 40,
         }}
       >
-        <div style={{ fontSize: 20, fontWeight: 700, color: excelColors.redAccent }}>
+        <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--accent-danger)' }}>
           #REF! — 發生錯誤
         </div>
         <pre
           style={{
-            fontFamily: 'Consolas, monospace',
+            fontFamily: 'var(--font-mono)',
             fontSize: 12,
             padding: 16,
-            background: excelColors.headerBg,
-            border: `1px solid ${excelColors.cellBorder}`,
-            borderRadius: 4,
+            background: 'var(--bg-paper-alt)',
+            border: '1px solid var(--line-soft)',
             maxWidth: 600,
             maxHeight: 240,
             overflow: 'auto',
@@ -55,15 +53,14 @@ export default class ErrorBoundary extends React.Component {
         <button
           onClick={() => window.location.reload()}
           style={{
-            padding: '8px 24px',
-            border: 'none',
-            borderRadius: 3,
-            background: excelColors.accent,
-            color: '#F5F0E8',
-            fontWeight: 700,
-            fontSize: 13,
+            padding: '7px 22px',
+            border: '1px solid var(--line)',
+            background: 'var(--accent)',
+            color: 'var(--bg-paper)',
+            fontWeight: 600,
+            fontSize: 12,
             cursor: 'pointer',
-            fontFamily: '"Microsoft JhengHei","Noto Sans TC",sans-serif',
+            fontFamily: 'var(--font-ui)',
           }}
         >
           重新載入

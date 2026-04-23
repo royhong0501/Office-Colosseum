@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { applyTheme, loadTheme } from './theme/themeVars.js';
 import MainMenu from './screens/MainMenu.jsx';
 import Lobby from './screens/Lobby.jsx';
 import NetworkedBattle from './screens/NetworkedBattle.jsx';
@@ -16,6 +17,9 @@ export default function App() {
   const hidden = useBossKey();
   const connStatus = useSocketStatus();
   const [screen, setScreen] = useState('menu');
+
+  useEffect(() => { applyTheme(loadTheme()); }, []);
+
   const [matchStart, setMatchStart] = useState(null);
   const [matchEnd, setMatchEnd] = useState(null);
 

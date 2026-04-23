@@ -5,16 +5,85 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HiiiCalc — 試算表管理工具</title>
   <style>
+    :root,
+    :root[data-theme="warm"] {
+      --bg-chrome: #c7bba0;
+      --bg-chrome-dark: #6d5f4a;
+      --bg-paper: #f1ece0;
+      --bg-paper-alt: #e9e2d1;
+      --bg-cell-header: #d9cfb5;
+      --bg-input: #fbf8f0;
+      --ink: #2c241a;
+      --ink-soft: #5a4f3d;
+      --ink-muted: #8a7e68;
+      --ink-faint: #b5a988;
+      --line: #b8ac8c;
+      --line-soft: #d4c9ae;
+      --accent: #6d5f4a;
+      --accent-danger: #8a3d2c;
+      --accent-link: #3a5a7a;
+      --sticky: #fbf4dc;
+    }
+    :root[data-theme="green"] {
+      --bg-chrome: #9cb59a;
+      --bg-chrome-dark: #3e5a42;
+      --bg-paper: #eef1e8;
+      --bg-paper-alt: #e2e8d8;
+      --bg-cell-header: #cfd9c5;
+      --bg-input: #f7faf2;
+      --ink: #1f2a1f;
+      --ink-soft: #3e5a42;
+      --ink-muted: #6a7a68;
+      --ink-faint: #a4b0a2;
+      --line: #8ea089;
+      --line-soft: #bfc9b8;
+      --accent: #3e5a42;
+      --accent-danger: #8a3d2c;
+      --accent-link: #2f4e72;
+      --sticky: #f5f0c8;
+    }
+    :root[data-theme="blue"] {
+      --bg-chrome: #b3c0cf;
+      --bg-chrome-dark: #2f3e52;
+      --bg-paper: #ecf0f4;
+      --bg-paper-alt: #dde4ec;
+      --bg-cell-header: #c8d2de;
+      --bg-input: #f6f8fb;
+      --ink: #1e2634;
+      --ink-soft: #3a4858;
+      --ink-muted: #6a7786;
+      --ink-faint: #a5adbc;
+      --line: #8a99a8;
+      --line-soft: #c2ccd6;
+      --accent: #2f3e52;
+      --accent-danger: #8a3d2c;
+      --accent-link: #2f4e72;
+      --sticky: #f3ead0;
+    }
+
+    :root {
+      --font-ui: "Segoe UI", -apple-system, BlinkMacSystemFont, "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+      --font-mono: "Consolas", "Menlo", "SF Mono", monospace;
+    }
+
     * { margin:0; padding:0; box-sizing:border-box; }
     html, body, #root { height:100%; overflow:hidden; }
-    body { font-family:"Microsoft JhengHei","Noto Sans TC",sans-serif; background:#F5F0E8; }
+    body {
+      font-family: var(--font-ui);
+      background: var(--bg-paper);
+      color: var(--ink);
+    }
     @keyframes floatUp { 0%{opacity:1;transform:translateX(-50%) translateY(0);} 100%{opacity:0;transform:translateX(-50%) translateY(-24px);} }
     @keyframes pixelBob { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-0.06px);} }
     @keyframes hurtFlash { 0%,100%{filter:none;} 40%{filter:brightness(2.2) hue-rotate(-20deg) saturate(1.5);} }
+    @keyframes sheetStripesSlide {
+      0% { background-position: 0 0; }
+      100% { background-position: 40px 0; }
+    }
     ::-webkit-scrollbar { width:8px; height:8px; }
-    ::-webkit-scrollbar-track { background:#EDE7DB; }
-    ::-webkit-scrollbar-thumb { background:#C4B8A8; border-radius:4px; }
-    ::-webkit-scrollbar-thumb:hover { background:#8B7355; }
+    ::-webkit-scrollbar-track { background: var(--bg-paper-alt); }
+    ::-webkit-scrollbar-thumb { background: var(--line); }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
   </style>
 </head>
 <body>
