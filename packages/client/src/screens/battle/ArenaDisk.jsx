@@ -1,15 +1,7 @@
 import React, { forwardRef } from 'react';
 import { getCharacterById, ARENA_WIDTH, ARENA_HEIGHT } from '@office-colosseum/shared';
-import { PixelCharacterSvg } from '../../components/PixelCharacter.jsx';
+import { CharacterSpriteSvg } from '../../components/CharacterSprite.jsx';
 import { excelColors } from '../../theme.js';
-
-// 將整個 PixelCharacter 的 viewBox (-1 0 18 16) 壓縮到世界 1 單位（直徑）內。
-// 角色腳底約在 y=15；我們把玩家世界座標對應到角色身體中心（viewBox 大約 8, 10）。
-const CHAR_VIEW_W = 18;
-const CHAR_VIEW_H = 16;
-const CHAR_CENTER_X = 8;
-const CHAR_CENTER_Y = 10;
-const CHAR_WORLD_SIZE = 1.0;  // 世界單位（角色高度接近 player hit radius ×2，較細緻且不會塞滿格子）
 
 // 投射物 SVG 覆蓋在玩家之上。effects 用 HTML overlay 處理（absolute + transform）。
 // 滑鼠事件掛在 forwardRef 的外層 div 上，給 useInputCapture(arenaRef, ...) 使用。
@@ -26,7 +18,6 @@ const ArenaDisk = forwardRef(function ArenaDisk({
   const halfW = W / 2;
   const halfH = H / 2;
   const viewBox = `${-halfW} ${-halfH} ${W} ${H}`;
-  const charScale = CHAR_WORLD_SIZE / CHAR_VIEW_H;
 
   // Excel 格線：每 1 世界單位一條
   const gridStep = 1;
@@ -109,18 +100,14 @@ const ArenaDisk = forwardRef(function ArenaDisk({
                   <circle cx={p.x} cy={p.y} r="0.4"
                     fill="none" stroke="#B85450" strokeWidth="0.03" opacity="0.5" />
                 )}
-                <g
-                  transform={`translate(${p.x} ${p.y}) scale(${charScale}) translate(${-CHAR_CENTER_X} ${-CHAR_CENTER_Y})`}
-                  style={{ filter: p.paused ? 'grayscale(0.8)' : 'none' }}
-                >
-                  <PixelCharacterSvg
-                    character={character}
-                    facing={p.facing ?? 0}
-                    shooting={shootingIds?.has(p.id) ?? false}
-                    hurt={hurtIds?.has(p.id) ?? false}
-                    highlight={isSelf}
-                  />
-                </g>
+                <CharacterSpriteSvg
+                  character={character}
+                  x={p.x} y={p.y}
+                  facing={p.facing ?? 0}
+                  shooting={shootingIds?.has(p.id) ?? false}
+                  hurt={hurtIds?.has(p.id) ?? false}
+                  paused={p.paused}
+                />
               </g>
             );
           })}
