@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ALL_CHARACTERS, MSG, MIN_PLAYERS } from '@office-colosseum/shared';
 import { getSocket } from '../net/socket.js';
 import { getJoinName, getPlayerUuid } from '../lib/playerIdentity.js';
+import { CharacterSpriteImg } from '../components/CharacterSprite.jsx';
 import { excelColors } from '../theme.js';
 import {
   ExcelMenuBar,
@@ -350,16 +351,8 @@ export default function Lobby({ onMatchStart, onBack }) {
                         else if (!isPicked && otherPicker) e.currentTarget.style.background = excelColors.headerBg;
                       }}
                     >
-                      <pre style={{
-                        margin: 0, fontSize: 7, lineHeight: 1.2,
-                        color: isPicked ? excelColors.accent : excelColors.textLight,
-                        fontFamily: 'Consolas, monospace',
-                        whiteSpace: 'pre',
-                        overflow: 'hidden',
-                        maxHeight: 40,
-                      }}>
-                        {(ch.ascii ?? []).slice(0, 4).join('\n')}
-                      </pre>
+                      <CharacterSpriteImg character={ch} size={42} />
+
                       <div style={{
                         fontSize: 9, marginTop: 3,
                         color: isPicked ? excelColors.accent : excelColors.text,

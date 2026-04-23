@@ -9,10 +9,8 @@
     html, body, #root { height:100%; overflow:hidden; }
     body { font-family:"Microsoft JhengHei","Noto Sans TC",sans-serif; background:#F5F0E8; }
     @keyframes floatUp { 0%{opacity:1;transform:translateX(-50%) translateY(0);} 100%{opacity:0;transform:translateX(-50%) translateY(-24px);} }
-    @keyframes pixelBob { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-1px);} }
-    @keyframes pixelShoot { 0%{transform:translateX(0);} 30%{transform:translateX(-2px);} 100%{transform:translateX(0);} }
+    @keyframes pixelBob { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-0.06px);} }
     @keyframes hurtFlash { 0%,100%{filter:none;} 40%{filter:brightness(2.2) hue-rotate(-20deg) saturate(1.5);} }
-    @keyframes muzzleFlash { 0%{opacity:1;transform:scale(1);} 100%{opacity:0;transform:scale(2);} }
     ::-webkit-scrollbar { width:8px; height:8px; }
     ::-webkit-scrollbar-track { background:#EDE7DB; }
     ::-webkit-scrollbar-thumb { background:#C4B8A8; border-radius:4px; }

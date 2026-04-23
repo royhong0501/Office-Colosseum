@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ALL_CHARACTERS } from '@office-colosseum/shared';
 import { excelColors } from '../theme.js';
+import { CharacterSpriteImg } from '../components/CharacterSprite.jsx';
 import {
   ExcelMenuBar,
   ExcelToolbar,
@@ -160,18 +161,16 @@ export default function CharacterBrowser({ onBack }) {
                 background: excelColors.headerBg,
                 marginBottom: 24,
               }}>
-                <pre style={{
-                  margin: 0, padding: 12,
+                <div style={{
+                  padding: 12,
                   background: excelColors.cellBg,
                   border: `1px solid ${excelColors.cellBorder}`,
                   borderRadius: 3,
-                  fontSize: 11, lineHeight: 1.3,
-                  fontFamily: 'Consolas, monospace',
-                  color: excelColors.text,
-                  whiteSpace: 'pre',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
                 }}>
-                  {(selected.ascii ?? []).join('\n')}
-                </pre>
+                  <CharacterSpriteImg character={selected} size={180} />
+                </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
                     <span style={{ fontSize: 22, fontWeight: 700, color: excelColors.accent }}>
