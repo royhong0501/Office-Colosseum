@@ -309,7 +309,7 @@ test('skillKind strike: 超出 ATTACK_RANGE 不造成傷害', () => {
 
 test('skillKind burst: AOE 命中所有 ATTACK_RANGE 內的敵人', () => {
   let s = createInitialState([
-    { id: 'a', characterId: 'persian' },        // burst
+    { id: 'a', characterId: 'husky' },          // burst
     { id: 'b', characterId: 'british_shorthair' },
     { id: 'c', characterId: 'russian_blue' },
     { id: 'd', characterId: 'siamese' },

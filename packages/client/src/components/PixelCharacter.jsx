@@ -22,7 +22,7 @@ const VARIANTS = {
   border_collie:    { ears: 'halfup',  twoTone: '#F5F5F5' },
   bulldog:          { ears: 'droop',   body: 'wide' },
   dalmatian:        { ears: 'droop',   pattern: 'spots', spotColor: '#222' },
-  akita:            { ears: 'sharp',   twoTone: '#F5E6D3' },
+  chihuahua:        { ears: 'sharp',   body: 'short', eyeColor: '#5A4838' },
 };
 
 // 內部 SVG 繪圖元件，回傳 <g>，不包 <svg> 外框。facing 為弧度。
