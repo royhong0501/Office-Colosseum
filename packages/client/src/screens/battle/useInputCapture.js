@@ -42,22 +42,27 @@ export function useInputCapture(arenaRef, selfPosRef) {
       if (e.button === 0) leftDown.current = true;
       if (e.button === 2) { skillPending.current = true; e.preventDefault(); }
     };
+    // mouseup 掛在 window：玩家把滑鼠拖出 arena 放開時也能收到，避免 leftDown 卡住狂打
     const onMouseUp = (e) => {
       if (e.button === 0) leftDown.current = false;
     };
+    // 視窗失焦也視為放開（alt-tab、切到老闆鍵）
+    const onBlur = () => { leftDown.current = false; };
     const onContextMenu = (e) => e.preventDefault();
 
     arena.addEventListener('mousemove', onMouseMove);
     arena.addEventListener('mousedown', onMouseDown);
-    arena.addEventListener('mouseup', onMouseUp);
     arena.addEventListener('contextmenu', onContextMenu);
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('blur', onBlur);
 
     return () => {
       window.removeEventListener('keydown', kd);
       window.removeEventListener('keyup', ku);
+      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('blur', onBlur);
       arena.removeEventListener('mousemove', onMouseMove);
       arena.removeEventListener('mousedown', onMouseDown);
-      arena.removeEventListener('mouseup', onMouseUp);
       arena.removeEventListener('contextmenu', onContextMenu);
     };
   }, [arenaRef]);
