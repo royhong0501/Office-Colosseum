@@ -1,5 +1,7 @@
-// 世界幾何：圓形競技場，原點 (0,0)，浮點座標
-export const ARENA_RADIUS = 8;
+// 世界幾何：矩形競技場，中心在 (0,0)，浮點座標。
+// 16:9 比例，邊界：-ARENA_WIDTH/2 ≤ x ≤ ARENA_WIDTH/2、-ARENA_HEIGHT/2 ≤ y ≤ ARENA_HEIGHT/2
+export const ARENA_WIDTH = 24;
+export const ARENA_HEIGHT = 13.5;
 export const PLAYER_RADIUS = 0.5;
 export const PROJECTILE_RADIUS = 0.2;
 
@@ -26,6 +28,10 @@ export const ATTACK_RANGE = 2;
 export const BURST_MULT = 1.0;
 export const DASH_DISTANCE = 3;
 export const DASH_DMG_MULT = 0.8;
-export const SHIELD_DURATION_MS = 3000;
+// Shield：持續時間 = base + spc × mult（毫秒）
+export const SHIELD_DURATION_BASE_MS = 1500;
+export const SHIELD_SPC_MULT_MS = 25;
 export const SHIELD_DAMAGE_MULT = 0.5;
-export const HEAL_PCT = 0.3;
+// Heal：回血量 = maxHp × HEAL_PCT + spc × HEAL_SPC_MULT
+export const HEAL_PCT = 0.2;
+export const HEAL_SPC_MULT = 0.4;

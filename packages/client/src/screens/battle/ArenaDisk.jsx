@@ -1,5 +1,5 @@
 import React, { forwardRef } from 'react';
-import { getCharacterById, ARENA_RADIUS } from '@office-colosseum/shared';
+import { getCharacterById, ARENA_WIDTH, ARENA_HEIGHT } from '@office-colosseum/shared';
 import { PixelCharacterSvg } from '../../components/PixelCharacter.jsx';
 import { excelColors } from '../../theme.js';
 
@@ -9,7 +9,7 @@ const CHAR_VIEW_W = 18;
 const CHAR_VIEW_H = 16;
 const CHAR_CENTER_X = 8;
 const CHAR_CENTER_Y = 10;
-const CHAR_WORLD_SIZE = 1.6;  // 世界單位（角色高度比 player hit radius 稍大，視覺較有存在感）
+const CHAR_WORLD_SIZE = 1.0;  // 世界單位（角色高度接近 player hit radius ×2，較細緻且不會塞滿格子）
 
 // 投射物 SVG 覆蓋在玩家之上。effects 用 HTML overlay 處理（absolute + transform）。
 // 滑鼠事件掛在 forwardRef 的外層 div 上，給 useInputCapture(arenaRef, ...) 使用。
@@ -21,9 +21,19 @@ const ArenaDisk = forwardRef(function ArenaDisk({
   hurtIds,
   selfId,
 }, ref) {
-  const r = ARENA_RADIUS;
-  const viewBox = `${-r} ${-r} ${2 * r} ${2 * r}`;
+  const W = ARENA_WIDTH;
+  const H = ARENA_HEIGHT;
+  const halfW = W / 2;
+  const halfH = H / 2;
+  const viewBox = `${-halfW} ${-halfH} ${W} ${H}`;
   const charScale = CHAR_WORLD_SIZE / CHAR_VIEW_H;
+
+  // Excel 格線：每 1 世界單位一條
+  const gridStep = 1;
+  const vLines = [];
+  for (let x = -halfW + gridStep; x < halfW; x += gridStep) vLines.push(x);
+  const hLines = [];
+  for (let y = -halfH + gridStep; y < halfH; y += gridStep) hLines.push(y);
 
   return (
     <div
@@ -41,10 +51,10 @@ const ArenaDisk = forwardRef(function ArenaDisk({
     >
       <div style={{
         position: 'relative',
-        aspectRatio: '1 / 1',
+        aspectRatio: `${W} / ${H}`,
         maxWidth: '100%',
-        maxHeight: '100%',
-        width: 'min(100%, 100vh - 160px)',
+        maxHeight: 'calc(100vh - 160px)',
+        width: '100%',
       }}>
         <svg
           viewBox={viewBox}
@@ -56,15 +66,23 @@ const ArenaDisk = forwardRef(function ArenaDisk({
             display: 'block',
           }}
         >
-          {/* 場地：同心圓「網格」仿 Excel 紙風格 */}
-          <circle cx="0" cy="0" r={r} fill="#F8F4EC" stroke="#8B7355" strokeWidth="0.06" />
-          <circle cx="0" cy="0" r={r * 0.25} fill="none" stroke="#D8CFBE" strokeWidth="0.03" />
-          <circle cx="0" cy="0" r={r * 0.5}  fill="none" stroke="#D8CFBE" strokeWidth="0.03" />
-          <circle cx="0" cy="0" r={r * 0.75} fill="none" stroke="#D8CFBE" strokeWidth="0.03" />
+          {/* 場地底色 + 外框（Excel 試算表風） */}
+          <rect x={-halfW} y={-halfH} width={W} height={H}
+            fill="#F8F4EC" stroke="#8B7355" strokeWidth="0.06" />
 
-          {/* 十字線（像 Excel 座標的視覺參考）*/}
-          <line x1={-r} y1="0" x2={r} y2="0" stroke="#E4DCC8" strokeWidth="0.02" />
-          <line x1="0" y1={-r} x2="0" y2={r} stroke="#E4DCC8" strokeWidth="0.02" />
+          {/* 次要格線（每 gridStep 一條） */}
+          {vLines.map(x => (
+            <line key={`v${x}`} x1={x} y1={-halfH} x2={x} y2={halfH}
+              stroke="#D8CFBE" strokeWidth="0.03" />
+          ))}
+          {hLines.map(y => (
+            <line key={`h${y}`} x1={-halfW} y1={y} x2={halfW} y2={y}
+              stroke="#D8CFBE" strokeWidth="0.03" />
+          ))}
+
+          {/* 中心十字參考線 */}
+          <line x1={-halfW} y1="0" x2={halfW} y2="0" stroke="#E4DCC8" strokeWidth="0.02" />
+          <line x1="0" y1={-halfH} x2="0" y2={halfH} stroke="#E4DCC8" strokeWidth="0.02" />
 
           {/* 玩家 */}
           {players.map(p => {
@@ -83,13 +101,13 @@ const ArenaDisk = forwardRef(function ArenaDisk({
             return (
               <g key={p.id}>
                 {isSelf && (
-                  <circle cx={p.x} cy={p.y} r="0.7"
-                    fill="none" stroke={excelColors.greenAccent} strokeWidth="0.05" opacity="0.7" />
+                  <circle cx={p.x} cy={p.y} r="0.5"
+                    fill="none" stroke={excelColors.greenAccent} strokeWidth="0.04" opacity="0.7" />
                 )}
                 {/* 敵人底下加淡紅環 */}
                 {!isSelf && (
-                  <circle cx={p.x} cy={p.y} r="0.55"
-                    fill="none" stroke="#B85450" strokeWidth="0.04" opacity="0.5" />
+                  <circle cx={p.x} cy={p.y} r="0.4"
+                    fill="none" stroke="#B85450" strokeWidth="0.03" opacity="0.5" />
                 )}
                 <g
                   transform={`translate(${p.x} ${p.y}) scale(${charScale}) translate(${-CHAR_CENTER_X} ${-CHAR_CENTER_Y})`}
@@ -113,7 +131,7 @@ const ArenaDisk = forwardRef(function ArenaDisk({
               key={proj.id}
               cx={proj.x}
               cy={proj.y}
-              r={proj.isSkill ? 0.24 : 0.18}
+              r={proj.isSkill ? 0.15 : 0.1}
               fill={proj.isSkill ? '#B85450' : '#DAA520'}
               style={{
                 transition: 'cx 33ms linear, cy 33ms linear',
@@ -125,8 +143,8 @@ const ArenaDisk = forwardRef(function ArenaDisk({
 
         {/* Effects overlay（HTML 層，用 world→viewport 換算到 %） */}
         {effects.map(eff => {
-          const pctX = ((eff.x + r) / (2 * r)) * 100;
-          const pctY = ((eff.y + r) / (2 * r)) * 100;
+          const pctX = ((eff.x + halfW) / W) * 100;
+          const pctY = ((eff.y + halfH) / H) * 100;
           return (
             <div
               key={eff.id}

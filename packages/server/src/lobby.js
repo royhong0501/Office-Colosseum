@@ -6,17 +6,21 @@ export class Lobby {
     this.players = new Map();  // socketId -> { id, name, characterId, ready, isHost, isBot }
     this.nextBotSeq = 1;
   }
-  join(socketId, name) {
+  join(socketId, name, uuid = null) {
     const prev = this.players.get(socketId);
     if (prev) {
-      // 重複 JOIN 是 idempotent：保留 characterId / ready / isHost，只更新顯示名
+      // 重複 JOIN 是 idempotent：保留 characterId / ready / isHost，更新名字與 uuid
       prev.name = name;
+      if (uuid) prev.uuid = uuid;
       this.broadcast();
       return { ok: true };
     }
     if (this.players.size >= MAX_PLAYERS) return { error: 'full' };
     const isHost = this.players.size === 0;
-    this.players.set(socketId, { id: socketId, name, characterId: null, ready: false, isHost, isBot: false });
+    this.players.set(socketId, {
+      id: socketId, name, uuid, characterId: null,
+      ready: false, isHost, isBot: false,
+    });
     this.broadcast();
     return { ok: true };
   }
@@ -58,6 +62,7 @@ export class Lobby {
     this.players.set(id, {
       id,
       name: `Bot-${seq}`,
+      uuid: null,
       characterId: character.id,
       ready: true,
       isHost: false,

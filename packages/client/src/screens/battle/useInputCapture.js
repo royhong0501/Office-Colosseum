@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ARENA_RADIUS } from '@office-colosseum/shared';
+import { ARENA_WIDTH, ARENA_HEIGHT } from '@office-colosseum/shared';
 
 // 滑鼠 + WASD 混合輸入：
 //   WASD / 方向鍵 → moveX/moveY 單位向量（連續移動）
@@ -29,10 +29,12 @@ export function useInputCapture(arenaRef, selfPosRef) {
 
     const onMouseMove = (e) => {
       const rect = arena.getBoundingClientRect();
-      const size = Math.min(rect.width, rect.height);
-      if (size <= 0) return;
-      // 畫布以中心為原點，ARENA_RADIUS 對應到 size/2 的半徑
-      const scale = size / (2 * ARENA_RADIUS);
+      if (rect.width <= 0 || rect.height <= 0) return;
+      // SVG 用 preserveAspectRatio="xMidYMid meet" → viewBox 等比例置中填入 rect。
+      // 以較緊的軸做 scale 與 letterbox 偏移，確保 world (0,0) 對應螢幕中心、邊界與 viewBox 同步。
+      const scaleX = rect.width / ARENA_WIDTH;
+      const scaleY = rect.height / ARENA_HEIGHT;
+      const scale = Math.min(scaleX, scaleY);
       mouseWorld.current.x = (e.clientX - rect.left - rect.width / 2) / scale;
       mouseWorld.current.y = (e.clientY - rect.top - rect.height / 2) / scale;
     };
@@ -40,22 +42,27 @@ export function useInputCapture(arenaRef, selfPosRef) {
       if (e.button === 0) leftDown.current = true;
       if (e.button === 2) { skillPending.current = true; e.preventDefault(); }
     };
+    // mouseup 掛在 window：玩家把滑鼠拖出 arena 放開時也能收到，避免 leftDown 卡住狂打
     const onMouseUp = (e) => {
       if (e.button === 0) leftDown.current = false;
     };
+    // 視窗失焦也視為放開（alt-tab、切到老闆鍵）
+    const onBlur = () => { leftDown.current = false; };
     const onContextMenu = (e) => e.preventDefault();
 
     arena.addEventListener('mousemove', onMouseMove);
     arena.addEventListener('mousedown', onMouseDown);
-    arena.addEventListener('mouseup', onMouseUp);
     arena.addEventListener('contextmenu', onContextMenu);
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('blur', onBlur);
 
     return () => {
       window.removeEventListener('keydown', kd);
       window.removeEventListener('keyup', ku);
+      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('blur', onBlur);
       arena.removeEventListener('mousemove', onMouseMove);
       arena.removeEventListener('mousedown', onMouseDown);
-      arena.removeEventListener('mouseup', onMouseUp);
       arena.removeEventListener('contextmenu', onContextMenu);
     };
   }, [arenaRef]);
