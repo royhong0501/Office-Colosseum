@@ -3,6 +3,7 @@ import {
   TICK_MS, MSG,
 } from '@office-colosseum/shared';
 import { decideBotInput } from './bot.js';
+import * as records from './records.js';
 
 export class Match {
   constructor(io, lobbyPlayers, onEnd) {
@@ -10,6 +11,8 @@ export class Match {
     this.onEnd = onEnd;
     this.players = lobbyPlayers.map(p => ({
       id: p.id,
+      name: p.name,
+      uuid: p.uuid ?? null,
       characterId: p.characterId,
       isBot: !!p.isBot,
     }));
@@ -18,15 +21,16 @@ export class Match {
     this.interval = null;
     this.stats = {};
     this.botSeqMap = new Map();
+    this.startedAtMs = 0;
     for (const p of this.players) {
       this.stats[p.id] = { dmgDealt: 0, dmgTaken: 0, survivedTicks: 0 };
       if (p.isBot) this.botSeqMap.set(p.id, 0);
     }
   }
   start() {
+    this.startedAtMs = Date.now();
     this.io.emit(MSG.MATCH_START, { state: this.state });
-    const startAt = Date.now();
-    this.interval = setInterval(() => this.tick(Date.now() - startAt), TICK_MS);
+    this.interval = setInterval(() => this.tick(Date.now() - this.startedAtMs), TICK_MS);
   }
   queueInput(playerId, input) { this.inputs.set(playerId, input); }
   tick(now) {
@@ -76,7 +80,28 @@ export class Match {
   }
   end() {
     clearInterval(this.interval); this.interval = null;
-    this.io.emit(MSG.MATCH_END, { winnerId: getWinner(this.state), summary: this.stats });
+    const winnerId = getWinner(this.state);
+    const endedAt = Date.now();
+    const participants = this.players.map(p => ({
+      uuid: p.uuid,
+      name: p.name,
+      characterId: p.characterId,
+      dmgDealt: this.stats[p.id]?.dmgDealt ?? 0,
+      dmgTaken: this.stats[p.id]?.dmgTaken ?? 0,
+      survivedTicks: this.stats[p.id]?.survivedTicks ?? 0,
+      isWinner: p.id === winnerId,
+      isBot: !!p.isBot,
+    }));
+    try {
+      records.recordMatch({
+        startedAt: this.startedAtMs,
+        endedAt,
+        participants,
+      });
+    } catch (err) {
+      console.warn('[match] records.recordMatch failed:', err.message);
+    }
+    this.io.emit(MSG.MATCH_END, { winnerId, summary: this.stats });
     if (this.onEnd) this.onEnd();
   }
   setPaused(playerId, paused) {

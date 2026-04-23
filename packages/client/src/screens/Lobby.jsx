@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ALL_CHARACTERS, MSG, MIN_PLAYERS } from '@office-colosseum/shared';
 import { getSocket } from '../net/socket.js';
-import { getJoinName } from '../lib/playerIdentity.js';
+import { getJoinName, getPlayerUuid } from '../lib/playerIdentity.js';
 import { excelColors } from '../theme.js';
 import {
   ExcelMenuBar,
@@ -16,7 +16,7 @@ export default function Lobby({ onMatchStart, onBack }) {
 
   useEffect(() => {
     const doJoin = () => {
-      socket.emit(MSG.JOIN, { name: getJoinName() });
+      socket.emit(MSG.JOIN, { name: getJoinName(), uuid: getPlayerUuid() });
     };
     if (socket.connected) doJoin();
     else socket.once('connect', doJoin);

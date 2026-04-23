@@ -114,8 +114,10 @@ export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
                 outline: 'none', borderRadius: 2,
               }}
             />
-            <div style={{ fontSize: 9, color: excelColors.textLight, marginTop: 4 }}>
+            <div style={{ fontSize: 9, color: excelColors.textLight, marginTop: 4, lineHeight: 1.5 }}>
               * 最多 {PLAYER_NAME_MAX} 字；按 Enter 或離開欄位自動儲存。留空會使用預設 {placeholder}
+              <br />
+              * 戰績以此瀏覽器為準；換瀏覽器或無痕模式會視為新身分
             </div>
           </div>
 

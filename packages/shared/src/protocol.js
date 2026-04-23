@@ -13,4 +13,6 @@ export const MSG = {
   ERROR: 'error',
   ADD_BOT: 'add_bot',
   REMOVE_BOT: 'remove_bot',
+  GET_RECORDS: 'get_records',
+  RECORDS: 'records',
 };

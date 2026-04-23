@@ -1,6 +1,7 @@
 import { MSG } from '@office-colosseum/shared';
 import { Lobby } from './lobby.js';
 import { Match } from './match.js';
+import * as records from './records.js';
 
 export function registerSocketHandlers(io) {
   const lobby = new Lobby(io);
@@ -11,7 +12,10 @@ export function registerSocketHandlers(io) {
   }
 
   io.on('connection', socket => {
-    socket.on(MSG.JOIN, ({ name }) => lobby.join(socket.id, name || 'Player'));
+    socket.on(MSG.JOIN, ({ name, uuid }) => lobby.join(socket.id, name || 'Player', uuid ?? null));
+    socket.on(MSG.GET_RECORDS, () => {
+      socket.emit(MSG.RECORDS, records.getSnapshot());
+    });
     socket.on(MSG.PICK, ({ characterId }) => lobby.pick(socket.id, characterId));
     socket.on(MSG.READY, ({ ready }) => lobby.setReady(socket.id, ready));
     socket.on(MSG.START, () => {
