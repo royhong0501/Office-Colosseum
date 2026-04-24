@@ -14,11 +14,3 @@ export function distSq(a, b) {
 export function clamp(v, lo, hi) {
   return Math.min(hi, Math.max(lo, v));
 }
-
-export function calculateDamage(attacker, defender, isSkill, rng = Math.random, skillMult = 1.5) {
-  const base = isSkill ? attacker.stats.spc : attacker.stats.atk;
-  const def = defender.stats.def;
-  const variance = 0.85 + rng() * 0.3;
-  const raw = Math.max(1, Math.floor(base * (1 - def / (def + 80)) * variance));
-  return isSkill ? Math.floor(raw * skillMult) : raw;
-}
