@@ -1,3 +1,6 @@
+// singleton Lobby + Match，多遊戲平台：Match 依 lobby.gameType 分派。
+// （房間管理檔 rooms.js / room.js 仍保留為第二階段多房預留）
+
 import { MSG } from '@office-colosseum/shared';
 import { Lobby } from './lobby.js';
 import { Match } from './match.js';
@@ -7,8 +10,8 @@ export function registerSocketHandlers(io) {
   const lobby = new Lobby(io);
   let match = null;
 
-  function replyError(socket, code) {
-    socket.emit(MSG.ERROR, { code, msg: code });
+  function replyError(socket, code, msg) {
+    socket.emit(MSG.ERROR, { code, msg: msg ?? code });
   }
 
   io.on('connection', socket => {
@@ -18,37 +21,35 @@ export function registerSocketHandlers(io) {
     });
     socket.on(MSG.PICK, ({ characterId }) => lobby.pick(socket.id, characterId));
     socket.on(MSG.READY, ({ ready }) => lobby.setReady(socket.id, ready));
+    socket.on(MSG.SET_GAME_TYPE, ({ gameType, config }) => {
+      if (match) return replyError(socket, 'match_running');
+      const r = lobby.setGameType(socket.id, gameType, config);
+      if (r.error) replyError(socket, r.error);
+    });
     socket.on(MSG.START, () => {
       const p = lobby.players.get(socket.id);
-      const playerDump = [...lobby.players.values()].map(
-        x => `${x.id.slice(0, 4)}{host:${x.isHost},ready:${x.ready},char:${x.characterId ?? 'null'}}`,
-      ).join(' ');
-      if (!p) {
-        console.log(`[START] rejected: sender ${socket.id.slice(0, 4)} not in lobby. roster=${playerDump}`);
-        socket.emit(MSG.ERROR, { code: 'not_in_lobby', msg: '你不在 lobby 中' });
-        return;
-      }
-      if (!p.isHost) {
-        console.log(`[START] rejected: ${p.id.slice(0, 4)} is not host. roster=${playerDump}`);
-        socket.emit(MSG.ERROR, { code: 'not_host', msg: '只有 host 能開始' });
-        return;
-      }
-      if (match) {
-        console.log(`[START] rejected: match already running. roster=${playerDump}`);
-        socket.emit(MSG.ERROR, { code: 'match_running', msg: '已有比賽進行中（server 狀態殘留？請重啟 server）' });
-        return;
-      }
-      if (!lobby.canStart()) {
-        console.log(`[START] rejected: canStart false. roster=${playerDump}`);
-        socket.emit(MSG.ERROR, { code: 'not_ready', msg: 'canStart 為 false：有人沒準備或沒選角' });
-        return;
-      }
-      console.log(`[START] ok: launching match. roster=${playerDump}`);
-      match = new Match(io, [...lobby.players.values()], () => {
+      if (!p) return replyError(socket, 'not_in_lobby', '你不在 lobby 中');
+      if (!p.isHost) return replyError(socket, 'not_host', '只有 host 能開始');
+      if (match) return replyError(socket, 'match_running', '已有比賽進行中');
+      if (!lobby.canStart()) return replyError(socket, 'not_ready', 'canStart 為 false');
+
+      try {
+        match = new Match(
+          io,
+          [...lobby.players.values()],
+          lobby.gameType,
+          lobby.config,
+          () => {
+            match = null;
+            lobby.resetForNewMatch();
+          },
+        );
+        match.start();
+      } catch (err) {
+        console.error('[START] failed:', err);
+        replyError(socket, 'start_failed', err.message);
         match = null;
-        lobby.resetForNewMatch();
-      });
-      match.start();
+      }
     });
     socket.on(MSG.INPUT, input => { if (match) match.queueInput(socket.id, input); });
     socket.on(MSG.PAUSED, ({ paused }) => { if (match) match.setPaused(socket.id, paused); });
