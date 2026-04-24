@@ -1,16 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { ALL_CHARACTERS, CAT_BREEDS, DOG_BREEDS, MSG } from '@office-colosseum/shared';
 import { CharacterSpriteImg } from '../components/CharacterSprite.jsx';
 import { getSocket } from '../net/socket.js';
 import SheetWindow from '../components/SheetWindow.jsx';
 
-const STAT_LABELS = [
-  { key: 'hp', label: 'HP', full: '體力', max: 120 },
-  { key: 'atk', label: 'ATK', full: '攻擊', max: 80 },
-  { key: 'def', label: 'DEF', full: '防禦', max: 80 },
-  { key: 'spd', label: 'SPD', full: '速度', max: 90 },
-  { key: 'spc', label: 'SPC', full: '特技', max: 90 },
-];
+// 多遊戲平台後：characters 只是皮膚，沒有 stats / skill。
+// 本頁顯示員工名冊（id / 陣營 / 貼圖 / 使用數據）。
 
 function campLabel(type) {
   return type === 'cat' ? '貓方' : type === 'dog' ? '狗方' : '—';
@@ -82,7 +77,7 @@ export default function CharacterBrowser({ onBack }) {
 
   return (
     <SheetWindow
-      fileName="員工能力評估表_2026Q2.xlsx"
+      fileName="員工名冊_皮膚版.xlsx"
       cellRef={`A${selIdx + 2}`}
       formula={`=VLOOKUP("${selected?.name ?? ''}", CHARACTERS, 2, FALSE)`}
       tabs={[
@@ -92,17 +87,13 @@ export default function CharacterBrowser({ onBack }) {
       ]}
       activeTab={filter}
       onTabSelect={setFilter}
-      statusLeft="唯讀 — 員工檔案請洽 HR 部門"
+      statusLeft="唯讀 — 多遊戲平台後角色僅作為皮膚"
       statusRight={`總員工: ${ALL_CHARACTERS.length} | 狗方: ${DOG_BREEDS.length} | 貓方: ${CAT_BREEDS.length}`}
       fullscreen
     >
       <div style={{ flex: 1, overflow: 'auto', padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* ==== 頂部焦點角色 3 欄 ==== */}
         {selected && (
-          <div style={{
-            display: 'grid', gridTemplateColumns: '260px 1fr 260px',
-            gap: 16,
-          }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr 260px', gap: 16 }}>
             {/* 大頭像 */}
             <div style={{
               width: 260, height: 260,
@@ -129,21 +120,18 @@ export default function CharacterBrowser({ onBack }) {
               display: 'flex', flexDirection: 'column', gap: 12,
             }}>
               <div>
-                <div style={{
-                  fontSize: 10, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)',
-                  marginBottom: 4, letterSpacing: 1,
-                }}>
+                <div style={{ fontSize: 12, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)', marginBottom: 6, letterSpacing: 1 }}>
                   員工編號 {idBadge(selected)}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-                  <span style={{ fontSize: 26, fontWeight: 700, color: 'var(--ink)' }}>{selected.name}</span>
-                  <span style={{ fontSize: 13, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>
+                  <span style={{ fontSize: 28, fontWeight: 700, color: 'var(--ink)' }}>{selected.name}</span>
+                  <span style={{ fontSize: 15, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>
                     {selected.nameEn}
                   </span>
                 </div>
-                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
                   <span style={{
-                    fontSize: 10, padding: '2px 8px',
+                    fontSize: 12, padding: '3px 10px',
                     background: selected.type === 'cat' ? 'var(--accent-danger)' : 'var(--accent)',
                     color: 'var(--bg-paper)',
                     fontFamily: 'var(--font-mono)',
@@ -151,56 +139,29 @@ export default function CharacterBrowser({ onBack }) {
                     {campLabel(selected.type)}陣營
                   </span>
                   <span style={{
-                    fontSize: 10, padding: '2px 8px',
+                    fontSize: 12, padding: '3px 10px',
                     border: '1px solid var(--line-soft)',
                     color: 'var(--ink-soft)',
                     fontFamily: 'var(--font-mono)',
                   }}>
-                    {selected.skillKind?.toUpperCase() ?? 'SKILL'}
+                    SKIN
                   </span>
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '70px 70px 1fr 48px', rowGap: 6, alignItems: 'center' }}>
-                {STAT_LABELS.map((s) => {
-                  const val = selected.stats[s.key] ?? 0;
-                  const pct = Math.min(100, (val / s.max) * 100);
-                  return (
-                    <React.Fragment key={s.key}>
-                      <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--ink)' }}>
-                        {s.label}
-                      </span>
-                      <span style={{ fontSize: 10, color: 'var(--ink-muted)' }}>{s.full}</span>
-                      <div style={{
-                        height: 10, background: 'var(--bg-input)',
-                        border: '1px solid var(--line-soft)',
-                        marginRight: 8,
-                      }}>
-                        <div style={{
-                          width: `${pct}%`, height: '100%',
-                          background: 'var(--accent)',
-                        }} />
-                      </div>
-                      <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--ink)', textAlign: 'right' }}>
-                        {val}
-                      </span>
-                    </React.Fragment>
-                  );
-                })}
+              <div style={{ borderTop: '1px dashed var(--line-soft)', paddingTop: 12, fontSize: 13, color: 'var(--ink-soft)', lineHeight: 1.7 }}>
+                多遊戲平台改版後，所有角色在三款小遊戲中機制完全相同——
+                此條目僅作為你的視覺皮膚 / 貼圖 / 代表色。
               </div>
 
-              <div style={{
-                borderTop: '1px dashed var(--line-soft)', paddingTop: 10,
-                display: 'flex', flexDirection: 'column', gap: 4,
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>
-                  技能 · {selected.skill}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)', lineHeight: 1.5 }}>
-                  {selected.skillDesc}
-                </div>
-                <div style={{ fontSize: 10, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
-                  操作：WASD 移動 · J 普攻 · K 技能 · ESC 切換季度報表
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ fontSize: 12, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>代表色</div>
+                <div style={{
+                  width: 22, height: 22, border: '1px solid var(--line)',
+                  background: selected.color,
+                }} />
+                <div style={{ fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--font-mono)' }}>
+                  {selected.color}
                 </div>
               </div>
             </div>
@@ -247,27 +208,24 @@ export default function CharacterBrowser({ onBack }) {
           </div>
         )}
 
-        {/* ==== 全角色表格 ==== */}
+        {/* 角色表格 */}
         <div>
-          <div style={{
-            fontSize: 11, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)',
-            marginBottom: 4,
-          }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)', marginBottom: 4 }}>
             {`=QUERY(CHARACTERS, "SELECT * WHERE 陣營 = '${filter === 'all' ? '全部' : campLabel(filter)}'")`}
           </div>
           <div style={{ border: '1px solid var(--line-soft)', background: 'var(--bg-input)' }}>
             <div style={{
               display: 'grid',
-              gridTemplateColumns: '68px 1.2fr 1.2fr 60px 1.4fr repeat(5, 52px)',
+              gridTemplateColumns: '68px 1.4fr 1.4fr 80px 80px',
               background: 'var(--bg-cell-header)',
               borderBottom: '1px solid var(--line-soft)',
               fontSize: 10, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)',
             }}>
-              {['編號', '中文名', '英文名', '陣營', '技能', 'HP', 'ATK', 'DEF', 'SPD', 'SPC'].map((h, i) => (
+              {['編號', '中文名', '英文名', '陣營', '代表色'].map((h, i) => (
                 <div key={i} style={{
                   padding: '4px 6px',
-                  borderRight: i < 9 ? '1px solid var(--line-soft)' : 'none',
-                  textAlign: i >= 5 ? 'right' : 'left',
+                  borderRight: i < 4 ? '1px solid var(--line-soft)' : 'none',
+                  textAlign: 'left',
                 }}>{h}</div>
               ))}
             </div>
@@ -279,7 +237,7 @@ export default function CharacterBrowser({ onBack }) {
                   onClick={() => setSelectedId(ch.id)}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '68px 1.2fr 1.2fr 60px 1.4fr repeat(5, 52px)',
+                    gridTemplateColumns: '68px 1.4fr 1.4fr 80px 80px',
                     fontSize: 11, color: 'var(--ink)',
                     background: isSel ? 'var(--bg-paper-alt)' : (i % 2 === 0 ? 'var(--bg-paper)' : 'var(--bg-input)'),
                     borderBottom: '1px solid var(--line-soft)',
@@ -299,18 +257,10 @@ export default function CharacterBrowser({ onBack }) {
                   <div style={{ padding: '5px 6px', borderRight: '1px solid var(--line-soft)', color: ch.type === 'cat' ? 'var(--accent-danger)' : 'var(--accent)' }}>
                     {campLabel(ch.type)}
                   </div>
-                  <div style={{ padding: '5px 6px', borderRight: '1px solid var(--line-soft)', fontFamily: 'var(--font-ui)', color: 'var(--ink-soft)' }}>
-                    {ch.skill}
+                  <div style={{ padding: '5px 6px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 14, height: 14, border: '1px solid var(--line)', background: ch.color }} />
+                    {ch.color}
                   </div>
-                  {STAT_LABELS.map((s) => (
-                    <div key={s.key} style={{
-                      padding: '5px 6px',
-                      borderRight: s.key === 'spc' ? 'none' : '1px solid var(--line-soft)',
-                      textAlign: 'right',
-                    }}>
-                      {ch.stats[s.key]}
-                    </div>
-                  ))}
                 </div>
               );
             })}
