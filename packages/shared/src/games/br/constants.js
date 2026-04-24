@@ -1,8 +1,9 @@
 // 經典大逃殺常數（單位：格子）
 // 場地採 corner-origin：x ∈ [0, ARENA_COLS]、y ∈ [0, ARENA_ROWS]，每 cell = 1 世界單位。
 
-export const ARENA_COLS = 20;
-export const ARENA_ROWS = 9;
+// 場地 28×14（比原 20×9 大約 2.18×，多人對戰更有走位空間）
+export const ARENA_COLS = 28;
+export const ARENA_ROWS = 14;
 export const CELL = 1;
 
 // 玩家
