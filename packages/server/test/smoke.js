@@ -1,4 +1,8 @@
 // packages/server/test/smoke.js
+//
+// Singleton 版 smoke：兩個 client 連上 server → 直接 JOIN → PICK → READY → host START。
+// （多房間版 smoke 歷史保留於 git history 上一輪 commit；第二階段切回時參考）
+
 import { io as ioClient } from 'socket.io-client';
 import { spawn } from 'node:child_process';
 import { MSG, ALL_CHARACTERS } from '@office-colosseum/shared';
@@ -30,8 +34,9 @@ a.on(MSG.MATCH_START, () => { matchStarted = true; setTimeout(() => {
 
 await new Promise(r => a.on('connect', r));
 await new Promise(r => b.on('connect', r));
+// A JOIN 必須先到（A 才會變 host），B 再排 30ms 後入場避免同時抵達的 race
 a.emit(MSG.JOIN, { name: 'A' });
-b.emit(MSG.JOIN, { name: 'B' });
+setTimeout(() => b.emit(MSG.JOIN, { name: 'B' }), 30);
 setTimeout(() => {
   a.emit(MSG.PICK, { characterId: ALL_CHARACTERS[0].id });
   b.emit(MSG.PICK, { characterId: ALL_CHARACTERS[1].id });

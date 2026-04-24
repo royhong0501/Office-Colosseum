@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MSG, getCharacterById, TICK_MS } from '@office-colosseum/shared';
 import { getSocket } from '../net/socket.js';
 import { getPlayerUuid, getStoredPlayerName } from '../lib/playerIdentity.js';
@@ -69,8 +69,22 @@ function LineChart({ matches, myUuid }) {
       };
     });
 
-  const width = 640;
-  const height = 160;
+  // 量測容器寬度，讓 viewBox 寬度 = 實際 render 寬度，
+  // 避免 preserveAspectRatio="none" 把文字橫向拉扁。
+  const containerRef = useRef(null);
+  const [width, setWidth] = useState(640);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const obs = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect?.width;
+      if (w) setWidth(Math.max(320, Math.floor(w)));
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  const height = 260;
   const padL = 40, padR = 12, padT = 12, padB = 24;
   const innerW = width - padL - padR;
   const innerH = height - padT - padB;
@@ -85,7 +99,7 @@ function LineChart({ matches, myUuid }) {
   const polyline = series.map((s, i) => `${x(i).toFixed(1)},${y(s.dmg).toFixed(1)}`).join(' ');
 
   return (
-    <div style={{
+    <div ref={containerRef} style={{
       border: '1px solid var(--line-soft)',
       background: 'var(--bg-input)',
     }}>
@@ -101,7 +115,7 @@ function LineChart({ matches, myUuid }) {
           =CHART(D2:D{series.length + 1}, &quot;line&quot;)
         </span>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} preserveAspectRatio="none">
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height}>
         {/* 斜紋底 */}
         <defs>
           <pattern id="gridStripes" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">

@@ -1,10 +1,12 @@
-import { MAX_PLAYERS, MIN_PLAYERS, MSG, ALL_CHARACTERS } from '@office-colosseum/shared';
+import { MAX_PLAYERS, MIN_PLAYERS, MSG, ALL_CHARACTERS, DEFAULT_GAME_TYPE, GAME_TYPES } from '@office-colosseum/shared';
 
 export class Lobby {
   constructor(io) {
     this.io = io;
     this.players = new Map();  // socketId -> { id, name, characterId, ready, isHost, isBot }
     this.nextBotSeq = 1;
+    this.gameType = DEFAULT_GAME_TYPE;
+    this.config = {};          // 每個 game 的專屬 config（BR 的 { mapId } 等）
   }
   join(socketId, name, uuid = null) {
     const prev = this.players.get(socketId);
@@ -47,6 +49,19 @@ export class Lobby {
   setReady(socketId, ready) {
     const p = this.players.get(socketId); if (!p) return;
     p.ready = ready; this.broadcast();
+  }
+  setGameType(requesterId, gameType, config = {}) {
+    const requester = this.players.get(requesterId);
+    if (!requester?.isHost) return { error: 'not_host' };
+    if (!GAME_TYPES.includes(gameType)) return { error: 'unknown_game_type' };
+    this.gameType = gameType;
+    this.config = config ?? {};
+    // 切換遊戲後全員要重新 ready（避免上一款的 ready 狀態帶過去誤觸發 START）
+    for (const p of this.players.values()) {
+      if (!p.isBot) p.ready = false;
+    }
+    this.broadcast();
+    return { ok: true };
   }
   canStart() {
     if (this.players.size < MIN_PLAYERS) return false;
@@ -92,6 +107,12 @@ export class Lobby {
     this.nextBotSeq = 1;
     this.broadcast();
   }
-  snapshot() { return { players: [...this.players.values()] }; }
+  snapshot() {
+    return {
+      players: [...this.players.values()],
+      gameType: this.gameType,
+      config: this.config,
+    };
+  }
   broadcast() { this.io.emit(MSG.LOBBY_STATE, this.snapshot()); }
 }

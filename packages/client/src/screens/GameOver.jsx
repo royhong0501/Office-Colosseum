@@ -1,6 +1,13 @@
 import { getSocket } from '../net/socket.js';
 import { getCharacterById, TICK_MS } from '@office-colosseum/shared';
+import { getMapById } from '@office-colosseum/shared/src/games/br/index.js';
 import SheetWindow from '../components/SheetWindow.jsx';
+
+const GAME_NAMES = {
+  'battle-royale': '經典大逃殺',
+  'items': '道具戰',
+  'territory': '數據領地爭奪戰',
+};
 
 function formatDuration(ticks) {
   const sec = Math.floor((ticks * TICK_MS) / 1000);
@@ -52,7 +59,7 @@ function DmgBar({ value, max }) {
   );
 }
 
-export default function GameOver({ winnerId, summary, players, onBack }) {
+export default function GameOver({ gameType, config, winnerId, summary, players, onBack }) {
   const selfId = getSocket()?.id;
   const isSelfWinner = selfId && selfId === winnerId;
 
@@ -92,10 +99,15 @@ export default function GameOver({ winnerId, summary, players, onBack }) {
 
   const shortId = `SH-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
   const timestamp = formatTimestamp();
+  const gameName = GAME_NAMES[gameType] ?? '對戰';
+  const mapName = gameType === 'battle-royale' && config?.mapId
+    ? (getMapById(config.mapId)?.name ?? null)
+    : null;
+  const titleLabel = mapName ? `${gameName} · ${mapName}` : gameName;
 
   return (
     <SheetWindow
-      fileName={`本週工作成果_${shortId}_彙整.xlsx`}
+      fileName={`${titleLabel}_${shortId}_彙整.xlsx`}
       cellRef="A1"
       formula={`=SUMIFS(MATCH_LOG, PLAYER="${me?.displayName ?? '—'}")`}
       tabs={[

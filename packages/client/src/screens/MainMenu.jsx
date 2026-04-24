@@ -55,10 +55,10 @@ function computeRecentFiles(records, limit = 4) {
 const TEMPLATES = [
   {
     id: 'online',
-    title: '連線對戰',
+    title: '對戰大廳',
     badge: 'ONLINE',
-    formula: '=VLOOKUP(ROOM, LOBBY, 2, FALSE)',
-    desc: '加入多人競技場，2–8 位同事共用一份工作表',
+    formula: '=QUERY(ROOMS, "SELECT *")',
+    desc: '進入大廳選擇房間，或開新房間招募 2–8 位對手',
   },
   {
     id: 'characters',
@@ -77,12 +77,20 @@ const TEMPLATES = [
 ];
 
 function TemplateThumbnail({ id }) {
-  // 用純 SVG 為每種範本畫個簡化示意圖，避免任何 emoji 或彩色 PNG
+  // 用純 SVG 為每種範本畫個簡化示意圖，避免任何 emoji 或彩色 PNG。
+  // aspect-ratio 4:3 + 預設 preserveAspectRatio="xMidYMid meet" 讓 SVG 內容等比置中、
+  // 不會因卡片寬度變化被橫拉扁塌。
   const stripe = 'repeating-linear-gradient(135deg, var(--bg-paper-alt) 0 8px, var(--bg-paper) 8px 16px)';
+  const thumbStyle = {
+    width: '100%', aspectRatio: '4 / 3',
+    border: '1px solid var(--line-soft)',
+    position: 'relative',
+    overflow: 'hidden',
+  };
   if (id === 'online') {
     return (
-      <div style={{ width: '100%', height: 120, background: stripe, border: '1px solid var(--line-soft)', position: 'relative' }}>
-        <svg viewBox="0 0 160 120" width="100%" height="100%" preserveAspectRatio="none">
+      <div style={{ ...thumbStyle, background: stripe }}>
+        <svg viewBox="0 0 160 120" width="100%" height="100%" style={{ display: 'block' }}>
           {Array.from({ length: 10 }).map((_, i) => (
             <line key={`h${i}`} x1="0" x2="160" y1={i * 12} y2={i * 12} stroke="var(--line-soft)" strokeWidth="0.5" />
           ))}
@@ -99,8 +107,8 @@ function TemplateThumbnail({ id }) {
   }
   if (id === 'characters') {
     return (
-      <div style={{ width: '100%', height: 120, background: 'var(--bg-input)', border: '1px solid var(--line-soft)' }}>
-        <svg viewBox="0 0 160 120" width="100%" height="100%" preserveAspectRatio="none">
+      <div style={{ ...thumbStyle, background: 'var(--bg-input)' }}>
+        <svg viewBox="0 0 160 120" width="100%" height="100%" style={{ display: 'block' }}>
           {Array.from({ length: 8 }).map((_, i) => (
             <g key={i}>
               <rect x="6" y={6 + i * 14} width="14" height="10" fill="var(--bg-cell-header)" stroke="var(--line-soft)" strokeWidth="0.5" />
@@ -114,8 +122,8 @@ function TemplateThumbnail({ id }) {
   }
   // history — 折線圖
   return (
-    <div style={{ width: '100%', height: 120, background: 'var(--bg-input)', border: '1px solid var(--line-soft)' }}>
-      <svg viewBox="0 0 160 120" width="100%" height="100%" preserveAspectRatio="none">
+    <div style={{ ...thumbStyle, background: 'var(--bg-input)' }}>
+      <svg viewBox="0 0 160 120" width="100%" height="100%" style={{ display: 'block' }}>
         {Array.from({ length: 6 }).map((_, i) => (
           <line key={`g${i}`} x1="10" x2="154" y1={20 + i * 16} y2={20 + i * 16} stroke="var(--line-soft)" strokeWidth="0.5" />
         ))}
@@ -297,8 +305,17 @@ export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
           </div>
         </div>
 
-        {/* 三張大範本縮圖 */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+        {/* 三張大範本縮圖（響應式：卡片等比例跟著容器寬度縮放，寬度不足自動換行）。
+            置中並限制最大寬度，避免桌面寬螢幕靠左留白。 */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: 16,
+          maxWidth: 1080,
+          marginLeft: 'auto',
+          marginRight: 'auto',
+          width: '100%',
+        }}>
           {TEMPLATES.map((tpl) => (
             <div
               key={tpl.id}

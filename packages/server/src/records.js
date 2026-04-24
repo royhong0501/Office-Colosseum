@@ -53,7 +53,7 @@ export function init(dbPath) {
 
 // participants: [{ uuid, name, characterId, dmgDealt, dmgTaken, survivedTicks, isWinner, isBot }]
 // 至少要有 MIN_REAL_PLAYERS 個非 bot 且有 uuid 的參與者才記錄
-export function recordMatch({ startedAt, endedAt, participants }) {
+export function recordMatch({ gameType, config, startedAt, endedAt, participants }) {
   const realParticipants = participants.filter(p => !p.isBot && p.uuid);
   if (realParticipants.length < MIN_REAL_PLAYERS) {
     return { skipped: true, reason: 'not_enough_real_players' };
@@ -63,6 +63,8 @@ export function recordMatch({ startedAt, endedAt, participants }) {
   const matchId = `m-${endedAt}-${Math.random().toString(36).slice(2, 5)}`;
   const match = {
     id: matchId,
+    gameType: gameType ?? 'battle-royale',
+    config: config ?? {},
     startedAt, endedAt,
     durationMs: Math.max(0, endedAt - startedAt),
     winnerUuid: winner?.uuid ?? null,

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { CAT_BREEDS, DOG_BREEDS, ALL_CHARACTERS, MSG, MIN_PLAYERS, MAX_PLAYERS } from '@office-colosseum/shared';
+import { getMapById } from '@office-colosseum/shared/src/games/br/index.js';
 import { getSocket } from '../net/socket.js';
 import { getJoinName, getPlayerUuid } from '../lib/playerIdentity.js';
 import { CharacterSpriteImg } from '../components/CharacterSprite.jsx';
@@ -95,13 +96,24 @@ function PickerSection({ title, formula, characters, me, otherPickers, onPick })
   );
 }
 
-export default function Lobby({ onMatchStart, onBack }) {
+const GAME_NAME_MAP = {
+  'battle-royale': '經典大逃殺',
+  'items': '道具戰',
+  'territory': '數據領地爭奪戰',
+};
+
+export default function Lobby({ gameType, config, onMatchStart, onBack, gameName }) {
   const [players, setPlayers] = useState([]);
   const socket = getSocket();
 
   useEffect(() => {
     const doJoin = () => {
       socket.emit(MSG.JOIN, { name: getJoinName(), uuid: getPlayerUuid() });
+      // Host 選定的 gameType 透過 SET_GAME_TYPE 通知 server；非 host 觸發時 server
+      // 會回 not_host ERROR，但不影響流程（LOBBY_STATE 會把正確 gameType 帶下來）。
+      if (gameType) {
+        socket.emit(MSG.SET_GAME_TYPE, { gameType, config: config ?? {} });
+      }
     };
     if (socket.connected) doJoin();
     else socket.once('connect', doJoin);
@@ -161,10 +173,16 @@ export default function Lobby({ onMatchStart, onBack }) {
     }
   }
 
+  const baseGameName = gameName || GAME_NAME_MAP[gameType] || '對戰房間';
+  const mapName = gameType === 'battle-royale' && config?.mapId
+    ? (getMapById(config.mapId)?.name ?? null)
+    : null;
+  const displayGameName = mapName ? `${baseGameName} · ${mapName}` : baseGameName;
+
   if (!me) {
     return (
       <SheetWindow
-        fileName="連線大廳.xlsx — 連線中"
+        fileName={`${displayGameName}.xlsx — 連線中`}
         cellRef="A1"
         formula="=CONNECTING()"
         statusLeft="正在連線至對戰節點…"
@@ -182,15 +200,15 @@ export default function Lobby({ onMatchStart, onBack }) {
 
   return (
     <SheetWindow
-      fileName={`連線大廳.xlsx — ${fileSuffix}`}
+      fileName={`${displayGameName}.xlsx — ${fileSuffix}`}
       cellRef="B4"
       formula={`=FILTER(PLAYERS, STATUS="就緒") → ${readyCount}/${players.length}`}
       tabs={[
-        { id: 'menu', label: '主選單' },
-        { id: 'lobby', label: '連線大廳' },
+        { id: 'hall', label: '遊戲大廳' },
+        { id: 'room', label: displayGameName },
       ]}
-      activeTab="lobby"
-      onTabSelect={(id) => { if (id === 'menu') handleBack(); }}
+      activeTab="room"
+      onTabSelect={(id) => { if (id === 'hall') handleBack(); }}
       statusLeft={canStart ? '就緒 — 所有參賽者已準備，房主可啟動對戰' : '等待中 — 請完成選角與準備'}
       statusRight={`參賽者 ${players.length}/${MAX_PLAYERS} | 就緒 ${readyCount}/${players.length}`}
       fullscreen
@@ -391,7 +409,7 @@ export default function Lobby({ onMatchStart, onBack }) {
                 fontFamily: 'var(--font-ui)',
               }}
             >
-              離開大廳
+              離開房間
             </button>
           </div>
         </div>

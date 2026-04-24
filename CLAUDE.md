@@ -8,9 +8,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案概觀
 
-**Office Colosseum**——辦公室偽裝的區域網路多人對戰遊戲。外表看起來像 Excel 試算表（主選單、Lobby、HUD、老闆鍵覆蓋層都是名為「HiiiCalc」的統一試算表外殼），實際是 2–8 人大逃殺。滑鼠 + WASD 混合操作（WASD 移動 / 滑鼠 aim 決定朝向 / 左鍵普攻 / 右鍵技能 / ESC 老闆鍵）。
+**Office Colosseum** 是一個以「試算表偽裝」為核心視覺的**區網多人遊戲平台**，外殼全部是 HiiiCalc 試算表介面（主選單、模式選擇、對戰大廳、戰鬥畫面、老闆鍵覆蓋層都是統一的 SheetWindow 外殼），實際裡面跑三款辦公室題材小遊戲：
 
-設計假設：區網遊玩，延遲極低，所以採取「server 權威 + 無 client-side prediction」的最簡架構。世界座標是連續浮點（不是格子），16:9 矩形競技場。
+1. **經典大逃殺**（`battle-royale`）：射擊 + #REF! 報錯毒圈 + 掩體 + 衝刺 + 舉盾。5 張試算表場景地圖可選。WASD 移動 / 滑鼠 aim / LMB 射擊 / RMB 舉盾 / Shift 衝刺 / ESC 老闆鍵。**已實作（Phase 1）**。
+2. **道具戰**（`items`）：HP+MP 雙資源、基本射擊 + 5 個儲存格技能（凍結 trap / undo 回血 / 合併 trap 減速 / 唯讀 trap 封技 / 資料驗證 trap 傳送）。WASD + LMB 射擊 + 1–5 施放技能；單局 3 分鐘倒數。**已實作（Phase 2）**。
+3. **數據領地爭奪戰**（`territory`）：走過即塗隊色、封閉區域連鎖填滿（flood fill）。2–3 隊、最多 6 人；單局 3 分鐘，時限結束時佔地最多的隊伍贏。**已實作（Phase 3）**。
+
+設計假設：區網遊玩、延遲極低，所以採取「server 權威 + 無 client-side prediction」的最簡架構。各款遊戲的世界座標與規則差異大，但**共用同一條** Lobby / 戰績 / 房主 / bot / socket / 身分 pipeline。
+
+20 隻動物角色（10 貓 + 10 狗）**只作為皮膚**——在三款遊戲中機制完全相同，差別純粹是貼圖 / 名字 / 代表色。
 
 ---
 
@@ -30,41 +36,24 @@ npm run dev:server
 npm run dev:client
 ```
 
-開啟 `http://localhost:5173`。Vite 的 proxy 讓 client 以為自己連的是同一台機器，所以同一份 `getSocket()` 程式碼在 dev 和 prod 都能用。
+開啟 `http://localhost:5173`。
 
-### Docker 開發（雙 container，HMR）
+### Docker / 正式出 build
 
-```bash
-docker compose up --build
-```
-
-開啟 `http://localhost:5173`。bind mount `.:/app` + 每個 `node_modules/` 匿名 volume，保留容器內 npm workspaces 的 symlink（Windows filesystem 沒有 symlink 支援）。`docker-compose.yml` 的 `client` 服務吃 `VITE_PROXY_TARGET=http://server:3000` 這個 env，讓 client container 把 `/socket.io` 代理到 server container。
-
-### 正式出 build（LAN 主機實際跑的流程）
+（同前版；多遊戲重構不影響部署流程）
 
 ```bash
-# 純本機
 npm run build      # vite build → packages/client/dist/
 npm start          # Express 從 dist/ 出靜態檔 + socket.io，監聽 :3000
-
-# 或 Docker（多階段 build，約 260 MB）
-docker build -t office-colosseum .
-docker run --rm -p 3000:3000 office-colosseum
-
-# 或 prod compose
-docker compose -f docker-compose.prod.yml up --build -d
 ```
-
-開啟 `http://localhost:3000`。同事連 `http://<你的區網 IP>:3000`（Windows 要在防火牆放行 :3000 inbound）。
 
 ### 測試
 
 ```bash
 npm test                                                   # 所有 workspace 跑一遍
-npm test --workspace @office-colosseum/shared              # shared 的 node:test 單元測試
-npm test --workspace @office-colosseum/server              # server 的 lobby / bot / records 單元測試
+npm test --workspace @office-colosseum/shared              # shared 單元測試
+npm test --workspace @office-colosseum/server              # server（含 brBot、lobby、records、rooms）
 npm run smoke --workspace @office-colosseum/server         # 2-client 登入 lobby 的整合 smoke test
-node --test packages/shared/test/simulation.test.js        # 單一檔案
 ```
 
 所有 test 檔用原生 `node:test` + `node:assert/strict`，無任何測試 framework。
@@ -77,244 +66,306 @@ npm workspaces monorepo，**單向相依**：`client, server → shared`，`shar
 
 ```
 packages/
-  shared/   純 ES module — 常數、20 隻角色、傷害計算、權威模擬
-  server/   Node + Express + socket.io — 擁有 GameState，30 Hz 廣播，JSON 戰績持久化
-  client/   Vite + React 18 + socket.io-client — 訂閱 snapshot 渲染
+  shared/   純 ES module — 通用常數、20 角色（皮膚）、遊戲規則按 games/<id>/ 分目錄
+  server/   Node + Express + socket.io — 擁有 Lobby + Match dispatcher，30 Hz 廣播
+  client/   Vite + React 18 + socket.io-client — SheetWindow 外殼 + 模式選擇 + 戰鬥畫面（按 gameType 路由）
 ```
 
-核心原則：**server 是權威，client 是啞視圖**。所有遊戲判定（含技能命中與衝刺位移）都在 server 跑，client 只負責渲染 server 送來的 snapshot 以及把滑鼠 / 鍵盤輸入打包丟回去。
+核心原則：**server 是權威**、**client 是啞視圖**、**shared 按 gameType 分子目錄**。
+所有遊戲判定都在 server 跑；各款小遊戲的規則（simulation）放在 `packages/shared/src/games/<id>/`。
 
-### `packages/shared/` — 遊戲邏輯的唯一真實來源
+### Server 多遊戲 dispatcher
 
-純 ES module，**絕對不能**用到 `window`、`document`、`fs`、`process` 等任何平台 API。原因：server 會當成 node_modules import，client 會被 Vite bundle，兩邊都要能吃。
+```
+socketHandlers  →  Lobby (共用) + Match (gameType 參數化)
+                                    ├─ 'battle-royale' → shared/games/br/*    + server/games/brBot
+                                    ├─ 'items'         → shared/games/items/* + server/games/itemsBot
+                                    └─ 'territory'     → shared/games/territory/* + server/games/territoryBot
+```
+
+- 同一個 server process 一次只跑一場 match（保留 singleton）。Lobby 新增 `gameType` 欄位 + `setGameType(host, gameType, config)`。
+- `Match(io, players, gameType, config, onEnd)` 建構時用 `loadGame(gameType)` 拿到 `{ sim, bot }` 模組，tick loop 通用呼叫 `sim.applyInput / sim.resolveTick / sim.buildSnapshotPayload / sim.buildMatchStartPayload / bot.decideBotInput`。
+- 加新遊戲：建 `shared/games/<id>/`（實作 simulation 介面）+ `server/src/games/<id>Bot.js` + 在 `server/src/games/index.js` 的 `GAMES` 註冊。
+
+### Client 流程 + 戰鬥畫面 dispatcher
+
+```
+screen: menu → modeSelect → [mapSelect] → lobby → battle → gameover
+                          (BR only)
+        menu → characters / history（獨立頁）
+```
+
+- `NetworkedBattle.jsx` 是戰鬥層 dispatcher，依 `gameType` 路由到 `battle/<id>/BattleXxx.jsx`。
+- 全部非戰鬥畫面（Lobby / ModeSelect / MapSelect / MainMenu / GameOver / CharacterBrowser / MatchHistory）都走同一個 `SheetWindow` 外殼。
+
+---
+
+## `packages/shared/` — 遊戲規則單一真實來源
+
+純 ES module，**絕對不能**用到 `window`、`document`、`fs`、`process` 等任何平台 API。
 
 | 檔案 | 職責 |
 |---|---|
-| `constants.js` | 所有可調參數（見下方整理表） |
-| `characters.js` | 20 隻角色（10 貓 + 10 狗）。每隻都有 `skillKind` 決定技能走 projectile 還是瞬發判定 |
-| `math.js` | `manhattan(a,b)` / `euclidean(a,b)` / `distSq(a,b)` / `clamp(v,lo,hi)` / `calculateDamage(attacker, defender, isSkill, rng, skillMult=1.5)` |
-| `spawns.js` | `getSpawnPositions(n)` — 沿內縮 0.4× 邊界的橢圓均分，第 0 位在正上方 |
-| `simulation.js` | `createInitialState / applyInput / resolveTick / aliveCount / getWinner / moveStepFor` |
-| `protocol.js` | `MSG` 常數（client↔server 共用的 event 名稱） |
-| `index.js` | 統一 re-export，server / client 都只 `import` 這一個 |
+| `constants.js` | 通用常數（`MAX_PLAYERS=8`, `MIN_PLAYERS=2`, `TICK_RATE=30`, `TICK_MS`, `PLAYER_NAME_MAX=16`） |
+| `characters.js` | 20 隻角色（10 貓 + 10 狗）。僅 `{id, name, nameEn, type, color}` —— 當皮膚用 |
+| `math.js` | `manhattan / euclidean / distSq / clamp` 基本數學工具 |
+| `protocol.js` | `MSG` event 名稱常數 + `GAME_TYPES` 清單 + `DEFAULT_GAME_TYPE='battle-royale'` |
+| `index.js` | 統一 re-export，client/server 皆 import 這一個（`shared/games/<id>/` 需要深層 import） |
+| `games/br/` | 經典大逃殺規則模組（見下方） |
+| `games/items/` | 道具戰規則模組（見下方） |
+| `games/territory/` | 數據領地爭奪戰規則模組（見下方） |
 
-**關鍵常數**（`constants.js`）：
+### `shared/games/br/` — 經典大逃殺
 
-| 常數 | 值 | 用途 |
-|---|---|---|
-| `ARENA_WIDTH / ARENA_HEIGHT` | 24 / 13.5 | 競技場尺寸（世界單位），中心在 (0,0)，16:9 比例 |
-| `PLAYER_RADIUS / PROJECTILE_RADIUS` | 0.5 / 0.2 | 碰撞半徑（歐氏距離判定） |
-| `MIN_PLAYERS / MAX_PLAYERS` | 2 / 8 | Match 開始門檻與 lobby 上限 |
-| `TICK_RATE / TICK_MS` | 30 / 33.33 | Server tick 頻率 |
-| `MOVE_STEP / *_MIN / *_MAX` | 0.15 / 0.08 / 0.30 | baseline SPD=60 時每 tick 位移；`moveStepFor(charId)` 依 SPD 線性縮放 + clamp |
-| `BASELINE_SPD` | 60 | 對應到 `MOVE_STEP` 的 SPD 基準值 |
-| `ATTACK_COOLDOWN_MS / SKILL_COOLDOWN_MS` | 250 / 5000 | 普攻 4 shots/sec、技能 5 秒冷卻 |
-| `PROJECTILE_SPEED / PROJECTILE_MAX_DIST` | 0.4 / 12 | 子彈每 tick 位移 + 最大射程 |
-| `ATTACK_RANGE / BURST_MULT` | 2 / 1.0 | 近戰 strike/burst 生效距離（歐氏） |
-| `DASH_DISTANCE / DASH_DMG_MULT` | 3 / 0.8 | dash 技能一次性位移 + 接觸傷害係數 |
-| `SHIELD_DURATION_BASE_MS + SHIELD_SPC_MULT_MS` | 1500 + 25×spc | shield 持續時間 |
-| `SHIELD_DAMAGE_MULT` | 0.5 | 盾期間所受傷害乘數 |
-| `HEAL_PCT + HEAL_SPC_MULT` | 0.2 × maxHp + 0.4×spc | heal 回血量 |
+| 檔案 | 內容 |
+|---|---|
+| `constants.js` | `ARENA_COLS=20, ARENA_ROWS=9`, `MAX_HP=100`, `MOVE_SPEED=5.2`（cells/s）、`SHOOT_CD_MS=280`, `BULLET_DMG=14`, `BULLET_SPEED=16`, `BULLET_MAX_DIST=14`, `SHIELD_REDUCTION=0.7`, `DASH_CELLS=2, DASH_CD_MS=6000, DASH_INVULN_MS=200`, `POISON_DPS=5, POISON_SEVERE_MULT=2, POISON_START_MS=30000, POISON_WAVE_INTERVAL_MS=15000` |
+| `maps.js` | 5 張地圖：年度預算報表 / 甘特圖 / 樞紐分析 / 股價 K 線 / 銷售熱區。`covers` 為 `[col, row, w, h]` 矩形列表；`expandCovers() → Set<"c,r">` 給碰撞用；`autoSpawns(map)` 四角+中點自動生出 spawn 點（避 cover）；`pickMap(idxOrId)`、`getMapById(id)` |
+| `simulation.js` | `createInitialState / applyInput / resolveTick / aliveCount / getWinner / buildSnapshotPayload / buildMatchStartPayload` |
 
-**角色資料 schema**（`characters.js`；client/server 共用的唯一真實來源）：
-
-```js
-{
-  id: 'border_collie',          // snake_case；同步對應 packages/client/src/assets/characters/<id>.png
-  name: '邊境牧羊犬',
-  nameEn: 'Border Collie',
-  type: 'cat' | 'dog',
-  ascii: ['row1', 'row2', ...], // 留給 CharacterBrowser 舊版顯示的備用資料
-  stats: { hp, atk, def, spd, spc },
-  skill: '牧羊凝視',             // 技能名（字串）
-  skillDesc: '專注眼神鎖定...',
-  skillKind: 'strike' | 'burst' | 'dash' | 'shield' | 'heal' | undefined,
-  color: '#3A3A3A',             // CharacterBrowser 長條圖 / 戰鬥畫面 fallback 方塊底色
-}
-```
-
-⚠️ 欄位名常踩雷：是 **`ascii`（陣列）、`skill`、`skillDesc`、`skillKind`**，不是 `asciiArt` / `skillName` / `description`。UI 碼亂用會爆 `Cannot read properties of undefined`。`skillKind` 未設定（`undefined`）會走預設的 projectile 分支（發一顆大子彈）。
-
-**傷害公式**（寫死在 `math.js`）：
-
-```
-base     = isSkill ? atk.spc : atk.atk
-variance = 0.85 + rng() × 0.3
-raw      = max(1, floor(base × (1 − def/(def+80)) × variance))
-final    = isSkill ? floor(raw × skillMult) : raw    // skillMult 預設 1.5
-```
-
-`rng` 是**注入參數**，單元測試可以固定成 `() => 0.5` 來驗證確定性結果。production 會傳 `Math.random`。`calculateDamage` 的第 5 個參數 `skillMult` 是 burst/dash 用來調整技能倍率（burst=1.0 / dash=0.8）的旋鈕。
-
-**`GameState` 形狀**：
+### BR `GameState` 形狀
 
 ```js
 {
   phase: 'playing' | 'ended',
-  tick: number,
+  tick, startedAtMs,
+  gameType: 'battle-royale',
+  config: { mapId },
+  map: {
+    id, name,
+    covers: [[c,r,w,h]...],
+    coversSet: Set<"c,r">,        // 展開後的單格 set（僅 server 狀態）
+    spawns: [[c,r]...],
+  },
   players: {
     [id]: {
       id, characterId,
-      x, y,                 // 浮點世界座標，範圍 [-ARENA_WIDTH/2, ARENA_WIDTH/2] × [-ARENA_HEIGHT/2, ARENA_HEIGHT/2]
+      x, y,                        // 世界座標（float，corner-origin；x ∈ [0, ARENA_COLS]）
       hp, maxHp,
-      alive, paused,        // paused = 老闆鍵中，仍可被攻擊
-      skillCdUntil,         // absolute ms timestamp
-      lastAttackAt,         // absolute ms timestamp，配合 ATTACK_COOLDOWN_MS 節流
-      facing,               // 弧度（radians），0 = 朝右（+X）、π/2 = 朝下（+Y）。由 client 的 aimAngle 每 tick 覆寫
-      shieldedUntil,        // shield 技能生效截止的 absolute ms timestamp
+      alive, paused,
+      moveX, moveY,                 // 正規化後的移動意圖（resolveTick 才真的位移）
+      aimAngle, facing,             // radians
+      shielding,                    // held bool
+      shootCdUntil, dashCdUntil,    // absolute ms timestamps
+      invulnUntil,                  // absolute ms timestamp
+      lastPoisonTickAt, lastHurtAt,
     }
   },
-  projectiles: [
-    {
-      id, ownerId, isSkill,
-      x, y,                 // 浮點座標
-      vx, vy,               // 每 tick 位移向量
-      angle,                // 弧度，同 shooter 當下 facing
-      traveled, spawnedAt,
-    }
-  ],
-  nextProjectileId: number, // monotonic，用來配對 spawn/expire/hit event
-  events: []                // 累積事件（見下方清單）
+  bullets: [{ id, ownerId, x, y, vx, vy, angle, traveled, spawnedAtMs }],
+  poison: {
+    infected: Set<"c,r">,
+    severe: Set<"c,r">,
+    nextWaveAtMs,
+    waveCount,
+  },
+  nextBulletId,
+  events: [...],
 }
 ```
 
-**Event types 清單**（寫到 `state.events`、tick 結尾切 slice 廣播）：
+**重要**：client 收到的 snapshot 裡 `poison.infected / severe` 是 **array**（JSON 沒 Set），由 `buildSnapshotPayload` 轉好。server 內部的 state 仍用 Set 以支援 O(1) 查詢。
 
-- `damage` — `{ sourceId, targetId, amount, isSkill, at: {x,y} }` — 投射物命中、近戰 strike / burst / dash 結算都會 emit
-- `eliminated` — `{ playerId }` — hp 掉到 0 轉 `alive=false` 時
-- `projectile_spawn` — `{ id, ownerId, x, y, angle, isSkill }`
-- `projectile_hit` — `{ id, targetId }`
-- `projectile_expire` — `{ id }` — 出界或超過 `PROJECTILE_MAX_DIST`
-- `dash_move` — `{ playerId, from:{x,y}, to:{x,y} }` — dash 技能成功位移
-- `shield_on` — `{ playerId, untilMs, at }`
-- `heal` — `{ playerId, amount, at }`
+### BR 輸入 schema（INPUT event payload）
 
-**`simulation.js` 的幾個規則細節**：
+```js
+{ seq, moveX, moveY, aimAngle, attack, shield, dash }
+```
 
-- `applyInput(state, playerId, input, now, rng)` 回傳**新 state**（clone players / projectiles），並把新產生的 event append 到新 state 的 `events` 陣列尾端。
-- **輸入 schema（`input` 物件）**：`{ seq, moveX, moveY, aimAngle, attack, skill }`。
-  - `moveX / moveY` 是任意向量，`applyInput` 內部做 `Math.hypot` 正規化；同時按 WD 就斜向 45°。
-  - `aimAngle` 是弧度（`Math.atan2(dy, dx)`），直接寫入 `player.facing`。**player 沒移動時 facing 也會每 tick 更新**——滑鼠在動畫面就跟著轉。
-- **連續移動**：沒有 `MOVE_COOLDOWN_MS`；`moveStepFor(characterId)` 回傳 `clamp(MOVE_STEP × spd/60, 0.08, 0.30)`，每 tick 都會吃。SPD 越高每 tick 位移越大。
-- **戰鬥分兩條路徑**：
-  - 預設（`skillKind` 為 `undefined`）或按左鍵普攻：`spawnProjectile(...)` 朝 `facing` 射一顆子彈。子彈在 `resolveTick` 裡每 tick 前進 `PROJECTILE_SPEED`，命中用圓形碰撞 `(p.x-x)² + (p.y-y)² ≤ (PLAYER_RADIUS + PROJECTILE_RADIUS)²`。
-  - 近戰 `strike` / `burst` / `dash`：**瞬發判定，不生子彈**，直接在 `applyInput` 內結算傷害並 push event。
-  - `shield` / `heal`：只改 self 狀態（`shieldedUntil` / `hp`），不碰敵人。
-- `shield` 生效時，**投射物命中與所有近戰技能都走 `applyShieldedDamage`**：傷害 × `SHIELD_DAMAGE_MULT=0.5`。
-- `resolveTick` 結尾把 `hp<=0` 的人 flip 成 `alive=false`，並在 `aliveCount<=1` 時設 `phase='ended'`。
-- `paused=true` 時 `applyInput` 直接 return（打不出任何動作）——老闆鍵的 server 端實作。
+- `moveX/moveY`：任意向量（WASD / 方向鍵），server 端 `Math.hypot` 正規化
+- `aimAngle`：弧度，由 client 依滑鼠世界座標算出，每 tick 送；決定 facing 與射擊 / dash 方向
+- `attack`：left-click held bool，server 以 `SHOOT_CD_MS` 節流
+- `shield`：right-click held bool，直接寫入 `player.shielding`（放開立即卸盾）
+- `dash`：shift-press one-shot bool，server 檢查 `dashCdUntil` 決定是否生效；client 讀完要自行清掉 one-shot flag
 
-### `packages/server/` — 權威遊戲伺服器
+### BR Event types（server → client SNAPSHOT payload）
 
-Express + socket.io，`src/index.js` 啟動時掛靜態 `../client/dist` 和 socket server，兩者共用同一個 `:3000` 端口。同時初始化 `records.init(recordsPath)`，路徑可由 `RECORDS_PATH` env 覆寫（預設 `packages/server/data/records.json`）。
+- `damage` — `{ sourceId, targetId, amount, kind: 'bullet'|'poison', at: {x,y} }`
+- `eliminated` — `{ playerId }`
+- `projectile_spawn` — `{ id, ownerId, x, y, angle }`
+- `projectile_hit` — `{ id, targetId|null, at }`（targetId=null 代表撞 cover）
+- `projectile_expire` — `{ id }`
+- `dash_move` — `{ playerId, from:{x,y}, to:{x,y} }`
+- `shield_on` — `{ playerId, at }` / `shield_off` — `{ playerId }`
+- `poison_wave` — `{ waveCount, newCells: [[c,r]...] }`
 
-四個核心模組：
+### `shared/games/items/` — 道具戰
 
-- **`lobby.js` (`Lobby` 類別)**：管 slot、角色選擇、ready flag、bot 增減。第一位連線者自動變 host，host 離開時把 host 權遞給下一個**真人**（bot 不會被任命為 host）。`canStart()` 要求 ≥ `MIN_PLAYERS` 且所有人都 ready 且都挑了角色。`resetForNewMatch()` 在 Match 結束後清掉所有 bot、把真人 ready 設 false，**但保留 `characterId`**。`join(socketId, name, uuid)` 對同一個 `socketId` 是 idempotent 的——重複呼叫只更新名字與 uuid、不會重複佔 slot。Host 可在 lobby 透過 `addBot(requesterId)` 新增隨機角色的 bot（`id='bot-N'`、`name='Bot-N'`、`uuid=null`、`ready=true`、`isBot=true`），上限 `MAX_PLAYERS=8`。`removeBot(requesterId, botId)` 限 host。`leave()` 後若沒有真人剩下，自動清掉所有 bot（空 lobby 保留 bot 無意義）。
+| 檔案 | 內容 |
+|---|---|
+| `constants.js` | `ARENA_COLS=18, ARENA_ROWS=9`, `MAX_HP=100, MAX_MP=100, MP_REGEN_PER_SEC=2`, `MOVE_SPEED=4.8`（cells/s, slowed=2.4）、`SHOOT_CD_MS=600, BULLET_DMG=10, BULLET_SPEED=14, BULLET_MAX_DIST=12`, `ROUND_DURATION_MS=180000`, `SKILLS` 物件（freeze/undo/merge/readonly/validate 的 mpCost + cdMs + durationMs/rewindMs）, `SKILL_KEYS` 陣列, `HP_HISTORY_INTERVAL_MS=250, HP_HISTORY_LEN=12` |
+| `simulation.js` | `createInitialState / applyInput / resolveTick / aliveCount / getWinner / buildSnapshotPayload / buildMatchStartPayload`；trap 放在施放者當下 cell，敵人踩到才觸發；`undo` 會查 `hpHistory` 復原 2 秒前 HP 並清除 freeze/slow |
 
-- **`match.js` (`Match` 類別)**：拿 shared 的 `GameState` 跑 `setInterval(TICK_MS)` 的 30 Hz tick loop。每 tick：先為每個活著的 bot 呼叫 `decideBotInput(state, botId, now)` 塞進 input queue → drain input queue 每人跑 `applyInput` → `resolveTick` → 廣播 `snapshot` → 累加 `stats.{dmgDealt, dmgTaken, survivedTicks}` → match 結束時呼叫 `records.recordMatch({startedAt, endedAt, participants})` 持久化戰績、emit `MATCH_END`、觸發 `onEnd` callback 讓 `socketHandlers` 重置 lobby。
+### Items `GameState` 形狀
 
-- **`records.js`**：in-memory state + JSON 檔持久化（atomic rename + 1s debounce）。資料結構：`{ version: 1, players: { [uuid]: {wins, matches, dmgDealt, ..., byCharacter: {}} }, matches: Match[] }`。Match 只保留最後 `MAX_MATCHES=10` 筆；**至少要有 `MIN_REAL_PLAYERS=2` 個非 bot 且帶 uuid 的參與者才會記錄**（避免一個真人 vs 一堆 bot 灌勝率）。`init(path)` 會嘗試讀既有檔案，格式錯誤或讀失敗就開空檔 + 寫 warning；`_reset()` / `_flush()` 是給測試的後門。
+```js
+{
+  phase, tick, startedAtMs, roundEndsAtMs,
+  gameType: 'items', config: {},
+  players: { [id]: {
+    id, characterId, x, y,
+    hp, maxHp, mp, maxMp,
+    alive, paused,
+    moveX, moveY, aimAngle, facing,
+    shootCdUntil,
+    skillCdUntil: { freeze, undo, merge, readonly, validate },
+    frozenUntil, slowedUntil, silencedUntil,
+    hpHistory: [{ atMs, hp }, ...],
+    lastHurtAt, lastHpRecordAt,
+  }},
+  bullets: [{ id, ownerId, x, y, vx, vy, angle, traveled, spawnedAtMs }],
+  traps: [{ id, kind, cx, cy, ownerId, placedAtMs }],  // cx/cy = integer cell
+  nextBulletId, nextTrapId,
+  events: [...],
+}
+```
 
-- **`socketHandlers.js`**：把 socket event 綁到 Lobby / Match / Records 方法。`JOIN` 帶 `{name, uuid}`（uuid 由 client `playerIdentity.js` 從 localStorage 讀或生成）。`GET_RECORDS` → `RECORDS` 把完整 snapshot 送給 client（給 MainMenu / MatchHistory 用）。`disconnect` 被視為離開 lobby + 取消暫停（對進行中的 match 就是淘汰）。Match 的 `onEnd` callback 會 null 掉 match ref 並呼叫 `lobby.resetForNewMatch()`。
+### Items 輸入 schema（INPUT event payload）
 
-- **`bot.js`**：純函式 `decideBotInput(state, botId, now)`，回傳跟真人 INPUT 同 shape 的輸入 `{seq, moveX, moveY, aimAngle, attack, skill}`。決策樹：死/沒敵人 → idle；找最近敵人（按 id 排序 tie-break 保持確定性）→ 算歐氏距離 → `dist ≤ PROJECTILE_MAX_DIST`：站住 + aim + `attack=true, skill=true`；`dist > PROJECTILE_MAX_DIST`：朝敵人方向推進、不開火；同點疊在一起：盲射當下 facing。**不讀 `state.projectiles`**——刻意界線，不躲彈不預判。Match tick 中對每個 `isBot && alive` 的 player 呼叫，包 try/catch fallback idle。
+```js
+{ seq, moveX, moveY, aimAngle, attack, skill }
+```
 
-**⚠️ Match tick 的 event 處理（容易踩雷）**：
+- `attack`：LMB held bool，基本射擊（`SHOOT_CD_MS=600` 節流，10 dmg）
+- `skill`：`'freeze'|'undo'|'merge'|'readonly'|'validate'|null`。one-shot（client 讀完要清掉）。前端 1–5 鍵對應 `SKILL_KEYS` 索引
+- **凍結中（`now < frozenUntil`）**：只允許 `undo` 技能，移動 / 射擊 / 其他技能全擋
+- **Silenced（`now < silencedUntil`）**：所有技能（含 undo）都擋，但可移動可射擊
 
-`applyInput` 會把 damage / dash_move / shield_on / heal / projectile_spawn event 累積到 `state.events` 陣列上，而 `resolveTick` 會再 append projectile_hit / projectile_expire / eliminated。因此 `match.js` 在 tick 開頭記錄 `eventsStartIdx = this.state.events.length`，tick 結束時用 `state.events.slice(eventsStartIdx)` 切出這個 tick 所有新事件再廣播。如果忘記這個 slice，damage 數字就永遠到不了 client。
+### Items Event types
 
-### `packages/client/` — Vite + React 18 純視圖
+- `damage` — `{ sourceId, targetId, amount, kind: 'bullet', at }`
+- `eliminated` — `{ playerId }`
+- `projectile_spawn / projectile_hit / projectile_expire` — 同 BR
+- `trap_placed` — `{ id, kind, cx, cy, ownerId }`
+- `trap_triggered` — `{ id, kind, cx, cy, victimId }`
+- `skill_cast` — `{ kind: 'undo', playerId, hpRestored }`
+- `teleport` — `{ playerId, from, to }`（validate trap 觸發）
 
-**無 client-side prediction、無 interpolation**。收到 `snapshot` 就直接 `setState`，讓 React re-render。投射物只有 SVG 的 `transition: cx/cy 33ms linear` 做視覺平滑，本質還是離散 snapshot。輸入以 `TICK_MS` 間隔打包送出。
+### `shared/games/territory/` — 數據領地爭奪戰
 
-頂層 `main.jsx` 把 `<App />` 包在 `<ErrorBoundary>` 裡——任何 render 炸掉都會顯示錯誤卡片加重載按鈕，不會留下整片白屏。
+| 檔案 | 內容 |
+|---|---|
+| `constants.js` | `ARENA_COLS=22, ARENA_ROWS=13`, `MAX_TEAMS=3`, `MOVE_SPEED=4.5`（cells/s）, `ROUND_DURATION_MS=180000`, `TEAM_COLORS`（3 套預設 palette：A 淺綠 / B 淺紅 / C 淺黃） |
+| `simulation.js` | `partitionTeams(players)` 依人數分隊（4→2v2、6→3×2、奇數各半）；移動每 tick 經過新 cell → 標隊色；每 tick 對剛塗色的 team 跑 flood fill，任何「被自己隊色完全包圍」的連通區塊（含他隊色或空白）整塊翻色並 push `area_captured`。`getWinner` 依 `countByTeam` 最大隊回第一位 playerId |
 
-路由在 `App.jsx`，**六個畫面**：`menu | lobby | battle | gameover | characters | history`。`App.jsx` 掛了 `ConnectionBanner`（跨畫面的 socket 狀態橫幅）、boss-key overlay，並在 mount 時呼叫 `applyTheme(loadTheme())` 設定 `<html data-theme=…>`。
+### Territory `GameState` 形狀
 
-重要模組：
+```js
+{
+  phase, tick, startedAtMs, roundEndsAtMs,
+  gameType: 'territory', config: {},
+  teams: [{ id, name, color: {base, deep, edge}, playerIds: [...] }],
+  players: { [id]: {
+    id, characterId, teamId,
+    x, y, moveX, moveY, aimAngle, facing, alive, paused,
+  }},
+  cells: { 'c,r': teamId },        // sparse，未出現的 key 代表空白
+  nextCaptureId,
+  events: [...],
+}
+```
 
-- **`net/socket.js`**：`getSocket()` singleton，`io({ autoConnect: true })` 不指定 URL——同源連線，所以 dev 透過 Vite proxy、prod 透過 Express 同一個 port、Docker 透過 compose service 網路，同一份 code 都能用。
-- **`lib/playerIdentity.js`**：玩家身分層。`getPlayerUuid()` 從 `localStorage.oc.playerUuid` 讀 v4 UUID、沒有就生成並寫入；localStorage 不可用時退回 session 記憶體（戰績會跟瀏覽器生命週期綁在一起）。`getStoredPlayerName()` / `setPlayerName(s)` 管 `oc.playerName`，最長 `PLAYER_NAME_MAX=16` 字元；`getJoinName()` 回傳 trimmed name 或 fallback `Player-xxxx`。
-- **`theme/themeVars.js`**：3 組主題 `warm / green / blue`，實際 CSS 變數（`--bg-chrome`、`--ink`、`--line-soft`、`--accent` …）定義在 `packages/client/index.html` 的 inline `<style data-theme>`；切換只是 set `data-theme` attribute，存 `localStorage.hiiicalc.theme`。
-- **`hooks/useSocketStatus.js`**：訂閱 `connect / disconnect / connect_error`，回傳 `'connecting' | 'connected' | 'disconnected' | 'error'` 給 `ConnectionBanner`。
-- **`hooks/useBossKey.js`**：ESC keydown 切 `hidden`，同時 emit `MSG.PAUSED` 給 server。
-- **`screens/MainMenu.jsx`**：三大範本縮圖（連線對戰 / 角色資料庫 / 戰績報表）、名字編輯輸入框（寫回 localStorage）、Player Card 顯示場次 / 勝率 / 常用角色、最近檔案清單。mount 時呼叫 `MSG.GET_RECORDS` 從 server 拉 snapshot，沒拿到之前統計欄位就顯示 `—`。
-- **`screens/Lobby.jsx`**：**進場時不能直接 `socket.emit(JOIN)`，要先等 `socket.connected === true` 或 `socket.once('connect', ...)`**，不然 `socket.id` 是 `undefined`。JOIN payload 帶 `{name: getJoinName(), uuid: getPlayerUuid()}`。UI 是左右兩欄：左邊「參賽者名冊」工作表（host 有 `+新增 Bot` 與每列移除鈕）、右邊貓/狗方分區角色格（用 `CharacterSpriteImg` 的 PNG）。
-- **`screens/NetworkedBattle.jsx`**：訂閱 `MSG.SNAPSHOT`，每 tick 呼叫 `useInputCapture` 讀輸入並 emit `MSG.INPUT`。收到 snapshot 把 `events` 轉成戰鬥 log 和飄字動畫；`projectile_spawn` 在 `shootingIds` Set 裡短暫（180ms）標記射擊者，damage event 在 `hurtIds` Set 裡短暫（220ms）標記受擊者觸發 hurt flash；`dash_move` / `shield_on` / `heal` 各自產生 log 行 + 飄字（`»»»` / `盾` / `+N`）。
-- **`screens/battle/ArenaDisk.jsx`**：**名字雖然叫 Disk，其實是 16:9 矩形場地**（歷史包袱，早期是圓形）。SVG viewBox 等於世界座標範圍 `{-halfW, -halfH, W, H}`，`preserveAspectRatio="xMidYMid meet"` 等比置中；上層有 Excel 格線（每 1 世界單位）+ 中心十字。玩家用 `CharacterSpriteSvg` 畫、底下加高亮環（自己綠、敵人紅）；投射物用 SVG `<circle>` 浮點座標、金色（普攻）或紅色（技能）+ drop-shadow。Effects overlay 是獨立 HTML 層，把世界座標換算成 %。
-- **`screens/battle/useInputCapture.js`**：**滑鼠 + WASD 混合**，return 一個 `readInput()` function 每 tick 被呼叫。
-  - WASD / 方向鍵 → `moveX`、`moveY` 單位向量（held-key）
-  - 滑鼠位置 → `aimAngle`（弧度）。計算時用 `scale = min(rect.width/ARENA_WIDTH, rect.height/ARENA_HEIGHT)` 對應 SVG `xMidYMid meet` 的 letterbox；aim 是相對於自己當前世界座標的角度（需要外部傳 `selfPosRef`，由 NetworkedBattle 每次收 snapshot 更新）。
-  - 左鍵 → `attack = leftDown.current`（held）。`mouseup` 掛 window 層（避免滑鼠拖出 arena 放開時卡住）+ `blur` 也視為放開（alt-tab、切老闆鍵）。
-  - 右鍵 → `skill = skillPending.current`（**one-shot**，讀完立即 `false`）。掛 `contextmenu preventDefault` 阻右鍵選單。
-- **`screens/battle/BattleHUD.jsx` / `BattleLog.jsx`**：HP 條 + 技能 cooldown 計時 / 固定高度的 formula-bar 風戰鬥 log（固定高度是避免對戰中畫面往上移，早期 bug）。
-- **`screens/BossKey.jsx`**：ESC 切換全視窗 `季度報表_final_v3.xlsx` 假報表 overlay（z-index 9999），同時 emit `MSG.PAUSED`。**故意設計成「被凍住但仍可被攻擊」**——避免 ESC 變成無敵盾。
-- **`screens/CharacterBrowser.jsx`**：獨立頁面，從 `ALL_CHARACTERS` 讀資料；「全部 / 貓 / 犬」分頁、左側清單 + 右側角色詳情（用 `CharacterSpriteImg` 的 PNG + 能力值長條圖）。無 server 互動。
-- **`screens/MatchHistory.jsx`**：**已實作**，用 `MSG.GET_RECORDS` 拉全站戰績 snapshot，顯示總覽卡 + 最近對戰列表（按 `endedAt` 排序）+ 個人角色統計。若 server 無資料顯示 `#N/A — 尚無對戰紀錄`。
-- **`components/SheetWindow.jsx`**：**所有非戰鬥畫面的統一外殼**。由上而下 7 層：TitleBar / MenuBar / Toolbar / FormulaBar / 內容 / TabBar / StatusBar，邊框全部 `1px solid var(--line-soft)`，**禁用 emoji、border-radius、漸層**。StatusBar 右邊掛 `StatusBarThemeSelect` 切主題。
-- **`components/CharacterSprite.jsx`**：匯出 `CharacterSpriteSvg`（戰鬥畫面的 SVG `<image>`，含 pixelBob 待機動畫 + hurt flash + facing 水平翻轉 `cos(facing)<0`）、`CharacterSpriteImg`（HTML `<img>`，給 MainMenu / Lobby / Browser）。用 `import.meta.glob('../assets/characters/*.png', {eager:true})` build-time 收集，檔名（`<id>.png`）對應 character id。沒有 PNG 會走 fallback（彩色方塊 + 名稱首字）。
-- **`components/ConnectionBanner.jsx` / `ErrorBoundary.jsx`**：斷線橫幅 + 全域 error boundary。
-- **`theme.js`**：`excelColors` 調色盤，主要是 ArenaDisk 戰鬥畫面還在用（`cellBg`、`greenAccent`）；非戰鬥畫面一律走 CSS 變數。
-- **動畫 keyframe 寫在 `index.html`**：`pixelBob`（角色待機浮動）、`hurtFlash`、`floatUp`（傷害飄字）、`sheetStripesSlide`（lobby 進度條）等都在 `packages/client/index.html` 的 inline `<style>`。React 元件只用 `animation: 'pixelBob 1.6s ...'` 字串引用——搬動畫時兩邊要一起改。
+### Territory 輸入 schema
+
+```js
+{ seq, moveX, moveY, aimAngle }
+```
+
+只吃 WASD（moveX/moveY）。無射擊、無技能。`aimAngle` 僅供 sprite facing 顯示。
+
+### Territory Event types
+
+- `paint` — `{ cells: [[c, r, teamId], ...] }`（這 tick 新塗色的格子）
+- `area_captured` — `{ teamId, cells: [[c, r], ...] }`（flood fill 連鎖填滿）
+
+---
+
+## `packages/server/` — 權威遊戲伺服器
+
+Express + socket.io，`src/index.js` 掛靜態 `../client/dist` 和 socket server，共用 `:3000`。同時初始化 `records.init(RECORDS_PATH || 'data/records.json')`。
+
+### 核心模組
+
+- **`lobby.js`**（`Lobby` 類別）：共用 lobby。管 slot、角色選擇、ready flag、bot 增減。多了 `gameType` 與 `config` 欄位 + `setGameType(host, gameType, config)`。切換 gameType 時會把所有真人的 `ready` 歸 false（避免上一款的 ready 帶過來誤觸發 START）。
+- **`match.js`**（`Match` 通用 dispatcher）：建構子 `new Match(io, players, gameType, config, onEnd)`。透過 `loadGame(gameType)` 拿到 `{ sim, bot }`，tick loop 呼叫 `sim.*` 與 `bot.decideBotInput`。保留 event slice 機制（tick 頭記錄 `eventsStartIdx`、結尾 `slice`）。
+- **`games/index.js`**：`GAMES` registry（gameType → `{ sim, bot }`），`loadGame(gameType)`。
+- **`games/brBot.js`**：BR 的 `decideBotInput(state, botId, now)`。策略：死 → idle；腳下毒圈 → 逃往中心；視線內距離 ≤ `BULLET_MAX_DIST` → aim + attack；被 cover 擋視線 → 靠近不射；HP<40 → 60% 舉盾 + 2% dash 退敵。
+- **`games/itemsBot.js`**：Items 的 `decideBotInput`。策略：低 HP 或凍結 → 施 `undo`（若非 silenced）；視線內敵人 → aim + attack + 視距離繞切線；距離 3–7 + MP 足 → 放 trap（優先 `freeze`，其次 `readonly / merge / validate`）。
+- **`games/territoryBot.js`**：Territory 的 `decideBotInput`。策略：朝「離自己最近、偏邊緣、未被自己佔領」的格子走；分數 = 曼哈頓距離 + 2×邊緣距離。簡單 deterministic，容易圍出邊緣大區。
+- **`records.js`**：in-memory + JSON 檔持久化（atomic rename + 1s debounce）。`recordMatch({ gameType, config, startedAt, endedAt, participants })` 新增 `gameType` 與 `config` 欄位。`MIN_REAL_PLAYERS=2` 與 `MAX_MATCHES=10` 不變。
+- **`socketHandlers.js`**：把 socket event 綁到 Lobby / Match / Records 方法。`SET_GAME_TYPE` handler 已加。`START` 會帶 `lobby.gameType` + `lobby.config` 到 Match。
+
+### 未使用但保留（第二階段多房間預留）
+
+`room.js` / `rooms.js` / `test/rooms.test.js` 未被 `socketHandlers.js` 引用，但保留測試與程式碼結構，之後做多房間時重新接回。
+
+---
+
+## `packages/client/` — Vite + React 18
+
+**無 client-side prediction、無 interpolation**——收到 snapshot 直接 `setState` 觸發 re-render。
+
+### Screen 流程（`App.jsx`）
+
+```
+menu → modeSelect → [mapSelect (BR only)] → lobby → battle → gameover
+menu → characters (CharacterBrowser)
+menu → history (MatchHistory)
+```
+
+### 重要元件
+
+- **`net/socket.js`** — `getSocket()` singleton（autoConnect、同源）
+- **`components/SheetWindow.jsx`** — 7 層試算表外殼（TitleBar / MenuBar / Toolbar / FormulaBar / 內容 / TabBar / StatusBar）。`formula` 可接 JSX、`tabs` 接 `[{id,label}]`
+- **`components/CharacterSprite.jsx`** — `CharacterSpriteSvg`（戰鬥畫面用，世界座標 1×1 unit，含 pixelBob + hurt flash + facing 水平翻轉）和 `CharacterSpriteImg`（HTML 版）
+- **`screens/MainMenu.jsx`** — 歡迎頁 + Player Card（勝率 / 場次）+ 最近檔案 + 三張 template 卡進不同子頁
+- **`screens/ModeSelect.jsx`** — 畫面 01，三款遊戲模式選擇（BR 可玩、Items/Territory 顯示 SOON）。`onModeSelected(id)` 呼叫 App router
+- **`screens/battle/br/MapSelect.jsx`** — 畫面 02，Excel「插入圖表」對話框風格；左側 5 張 map 縮圖 + 右側大預覽 + 確定 / 取消
+- **`screens/Lobby.jsx`** — 入 lobby 先 JOIN 再 SET_GAME_TYPE（host only，非 host 會被 server 拒絕但無副作用）。頁首顯示 mode+map 名稱
+- **`screens/NetworkedBattle.jsx`** — 戰鬥層 dispatcher，依 `gameType` 路由到 `battle/br/BattleRoyale`、`battle/items/ItemsBattle`、未來的 `battle/territory/*`
+- **`screens/battle/items/ItemsBattle.jsx`** — 道具戰主畫面；入場會顯示 `TutorialModal`（5 技能說明），關閉前輸入不送出
+- **`screens/battle/items/ArenaItems.jsx`** — SVG viewBox `0 0 18 9`；格線 + traps（依 kind 顯示 emoji ❄/⊞/🔒/▼）+ players（shield/freeze/slow/silence debuff 環）+ bullets
+- **`screens/battle/items/useInputItems.js`** — WASD + LMB held + 1–5 one-shot `SKILL_KEYS` 對應
+- **`screens/battle/items/BattleHudItems.jsx`** — HP bar / MP bar / 5 技能槽（顯示 CD 或 MP 需求）/ debuff badges / 回合倒數 / 全員名單
+- **`screens/battle/items/TutorialModal.jsx`** — 入場彈出的 5 技能說明 modal
+- **`screens/battle/territory/TerritoryBattle.jsx`** — 領地爭奪主畫面；訂閱 SNAPSHOT，`area_captured` 進 log
+- **`screens/battle/territory/ArenaTerritory.jsx`** — SVG viewBox `0 0 22 13`；sparse cell 渲染（只畫有被佔的格子）+ players 帶隊色環
+- **`screens/battle/territory/useInputTerritory.js`** — 純 WASD，無滑鼠、無技能
+- **`screens/battle/territory/BattleHudTerritory.jsx`** — 隊伍分數比例條 + 分色卡 + 倒數 + 隊伍名單
+- **`screens/battle/br/BattleRoyale.jsx`** — BR 主戰鬥畫面，訂閱 SNAPSHOT、處理 events 進 log + 飄字 + hurt flash + 毒圈 banner
+- **`screens/battle/br/ArenaBR.jsx`** — SVG viewBox `0 0 20 9`，靜態層（grid + covers）+ 動態層（poison cells + players + bullets）。滑鼠 aim 透過 `arenaRef` + `xMidYMid meet` letterbox 對齊
+- **`screens/battle/br/useInputBR.js`** — WASD + 方向鍵 + 左鍵 held + 右鍵 held（shield）+ Shift one-shot（dash）
+- **`screens/battle/br/BattleHudBR.jsx`** — HP bar / dash CD / shield icon / 毒圈下一波倒數 / 全員名單 / 操作提示
+- **`styles/game-ui.css`** — 模式卡 / 按鈕 / md-kv 等共用類別（由 main.jsx import）
+- **`index.html` 的 inline `<style>`** — 主題 CSS 變數（warm/green/blue）+ 關鍵 keyframes（`pixelBob`、`floatUp`、`hurtFlash`、`shieldBreath`、`sheetStripesSlide`）
 
 ### `packages/client/src/assets/characters/`
 
-20 張 PNG 貼圖（每隻角色一張，檔名 = character id，例如 `border_collie.png`）。Vite glob import + `imageRendering: 'pixelated'` 渲染。新增角色時除了改 `shared/characters.js`，也要放一張同名 PNG，否則會走 fallback 方塊。
+20 張 PNG 貼圖。新增 / 換皮膚要同時更新 `shared/characters.js` 與 PNG 檔名。
 
 ---
 
 ## 協定（client ↔ server）
 
-**所有 event 名稱常數定義在 `packages/shared/src/protocol.js` 的 `MSG` 物件**。**絕對不要**在其他檔案寫死 event 字串——一律 `import { MSG } from '@office-colosseum/shared'`。新增 event 時先改 `protocol.js`。
+**所有 event 名稱常數定義在 `packages/shared/src/protocol.js` 的 `MSG` 物件**。
 
-| 方向 | Event (`MSG.*`) | Payload |
-|---|---|---|
-| C→S | `JOIN` | `{ name, uuid }` — uuid 由 client `playerIdentity.js` 提供 |
-| C→S | `PICK` (`pick_character`) | `{ characterId }` |
-| C→S | `READY` | `{ ready }` |
-| C→S | `START` (`start_match`) | `{}` — 只有 host 能成功觸發 |
-| C→S | `INPUT` | `{ seq, moveX, moveY, aimAngle, attack, skill }` — 每 client tick 一筆 |
-| C→S | `PAUSED` | `{ paused }` — 老闆鍵進 / 出 |
-| C→S | `LEAVE` | `{}` |
-| C→S | `ADD_BOT` | `{}` — 僅 host；滿 / 非 host / 進行中時回 ERROR |
-| C→S | `REMOVE_BOT` | `{ botId }` — 僅 host；目標必須是 bot 否則 ERROR |
-| C→S | `GET_RECORDS` | `{}` — 拉全站戰績 snapshot |
-| S→C | `LOBBY_STATE` | `{ players }` — 含 `isHost / isBot / uuid / characterId / ready` |
-| S→C | `MATCH_START` | `{ state }` — 完整 initial GameState |
-| S→C | `SNAPSHOT` | `{ tick, players, projectiles, events }` — 30 Hz |
-| S→C | `MATCH_END` | `{ winnerId, summary }` — summary 是每人的 `{dmgDealt, dmgTaken, survivedTicks}` |
-| S→C | `RECORDS` | `{ meta, players, matches }` — records.js 的 `getSnapshot()` |
-| S→C | `ERROR` | `{ code, msg }` |
-
-**輸入的混合設計**：
-- `moveX / moveY` 是任意向量 held-key（WASD/方向鍵每 tick 重送）；server 端 `Math.hypot` 正規化後乘 SPD 縮放的 `moveStepFor(...)` 每 tick 位移。
-- `aimAngle` 是弧度，每 tick 送。**facing 每 tick 覆寫**，即使角色不動也會跟著滑鼠轉——這是普攻方向也是近戰技能扇形中心。
-- `attack` 是 held-key bool（左鍵按住），server 靠 `ATTACK_COOLDOWN_MS=250` 節流成 4 shots/sec。
-- `skill` 是 **one-shot bool**（右鍵點擊）——`useInputCapture` 讀完立刻 `skillPending=false`，避免一次點擊在 cooldown 結束瞬間再觸發；server 端另外檢查 `skillCdUntil`。
-- 所有 INPUT 帶 monotonic `seq`，留給未來做 input replay / 去重的空間。
-
----
-
-## Docker 設計備忘
-
-- `Dockerfile` 多階段（builder + runtime）。runtime 重新跑一次 `npm ci --omit=dev` 拿乾淨的 prod deps，從 builder 只 `COPY --from=builder /app/packages/client/dist`。Image ~260 MB。
-- `Dockerfile.dev` **只裝依賴不 COPY source**——source 在 compose 階段 bind-mount 進來。這讓 dev image 不需要因為改 code 重 build。
-- `docker-compose.yml` 的關鍵：每個 `node_modules/` 都用匿名 volume 蓋住（`/app/node_modules`、`/app/packages/*/node_modules`），避免本機 Windows 的 `node_modules/`（無 symlink）覆蓋容器內 `npm ci` 生出的 workspaces symlink。
-- `packages/client/vite.config.js` 的 proxy target 是 `process.env.VITE_PROXY_TARGET || 'http://localhost:3000'`。本機跑沒設 env 就 fallback；compose 裡 client 服務吃 `http://server:3000`。
-
----
-
-## Fly.io 部署
-
-`fly.toml`（app: `office-colosseum`，region: `nrt`）定義了單台 shared-cpu-1x / 256 MB machine，吃 production `Dockerfile`。關鍵設定：
-
-- `auto_stop_machines = 'suspend'` + `min_machines_running = 1`：沒流量時 suspend（不是 stop）冷啟比較快；至少保留一台不關機，避免 lobby 裡的玩家被切斷 socket。
-- `max_machines_running = 1`：**刻意不水平擴展**，因為 GameState 與 records.js 都是 in-memory 的單例，多台 machine 之間沒有共用 state。要擴展得先把 lobby/match/records 改成跨 machine 共享（Redis pub/sub 或 shared DB）。
-- `internal_port = 3000`：與 Express 同 port，socket.io 走同一條 HTTPS upgrade。
-- **戰績持久化**：預設寫 `packages/server/data/records.json`——Fly.io 沒掛 volume 時這個路徑在 suspend 重啟後會消失。要持久化得另外掛 `fly volumes create` 並設 `RECORDS_PATH` env 指向掛載點。
-
-部署指令：`fly deploy`（assume 已經 `fly auth login`）。Dockerfile 與本機 prod image 共用，不需要額外 build artifact。
+| 方向 | Event (`MSG.*`) | Payload | 備註 |
+|---|---|---|---|
+| C→S | `JOIN` | `{ name, uuid }` | uuid 由 client `playerIdentity.js` 提供 |
+| C→S | `PICK` | `{ characterId }` | |
+| C→S | `READY` | `{ ready }` | |
+| C→S | `SET_GAME_TYPE` | `{ gameType, config }` | host only；切換遊戲時重置所有 ready |
+| C→S | `START` | `{}` | 只有 host 能成功觸發；Match 依 lobby.gameType 建立 |
+| C→S | `INPUT` | 依 gameType 不同 | BR：`{seq, moveX, moveY, aimAngle, attack, shield, dash}` |
+| C→S | `PAUSED` | `{ paused }` | 老闆鍵進 / 出 |
+| C→S | `LEAVE` | `{}` | |
+| C→S | `ADD_BOT` / `REMOVE_BOT` | `{}` / `{ botId }` | 僅 host |
+| C→S | `GET_RECORDS` | `{}` | 拉全站戰績 snapshot |
+| S→C | `LOBBY_STATE` | `{ players, gameType, config }` | |
+| S→C | `MATCH_START` | `{ gameType, config, state }` | BR 的 state 已把 Set 轉成 array（`poison.infected` 等） |
+| S→C | `SNAPSHOT` | 依 gameType 不同 | BR：`{tick, phase, players, bullets, poison, events}` |
+| S→C | `MATCH_END` | `{ winnerId, summary }` | summary 是每人的 `{dmgDealt, dmgTaken, survivedTicks}` |
+| S→C | `RECORDS` | `{ meta, players, matches }` | |
+| S→C | `ERROR` | `{ code, msg }` | |
 
 ---
 
@@ -323,36 +374,53 @@ Express + socket.io，`src/index.js` 啟動時掛靜態 `../client/dist` 和 soc
 ### 一定要遵守
 
 - **ES modules 全面使用**：每個 package 的 `package.json` 都有 `"type": "module"`。普通 JS 用 `.js`，有 JSX 的 React 檔用 `.jsx`。
-- **Client 禁止跑遊戲邏輯**：看到自己想在 client 算傷害、判斷勝負、處理碰撞、或自行推進 dash/shield 狀態時，立刻停下來——那個邏輯屬於 `shared/`，server 和 client 都從那邊 import。重複實作會導致兩端不一致。
-- **測試用注入 RNG**：`calculateDamage` 的第四個參數 `rng` 在單元測試一律傳 `() => 某個固定值`，**永遠不要**在測試裡依賴 `Math.random`。
-- **`shared/` 純淨**：不准 import `express`、`react`、`socket.io`，不准用 `window`、`fs`、`process.env`。只要這條守住，server 和 client 拿到的規則必然一致。
-- **Excel 偽裝是核心賣點**：非戰鬥畫面一律走 `SheetWindow` 外殼 + CSS 變數（`var(--bg-chrome)` / `var(--ink)` / `var(--line-soft)` / `var(--accent)` …）；禁 emoji、禁 border-radius、禁漸層。任何不像試算表的介面會直接破壞整個遊戲的存在意義。
+- **Client 禁止跑遊戲邏輯**：看到自己想在 client 算傷害、判斷勝負、處理碰撞，立刻停下來——那個邏輯屬於 `shared/games/<id>/`。
+- **`shared/` 純淨**：不准 import `express`、`react`、`socket.io`，不准用 `window`、`fs`、`process.env`。
+- **Excel 偽裝是核心賣點**：非戰鬥畫面一律走 `SheetWindow` 外殼 + CSS 變數（`var(--bg-chrome)` / `var(--ink)` / `var(--line-soft)` / `var(--accent)` …）；禁 emoji、禁 border-radius、禁漸層。
+- **角色是皮膚**：三款遊戲在 simulation 層不看 character 的任何屬性（stats 已移除）。加新角色只要：`shared/characters.js` 增加一筆 + 放貼圖 PNG。
+- **MSG 名稱只能在 protocol.js 定義**：其他檔案寫死 event 字串（例如 `'snapshot'`）雖然會動，但 refactor 會漏改。一律 `import { MSG } from '@office-colosseum/shared'`。
 
 ### 容易踩的坑
 
-- **角色欄位名**：`ascii`（陣列，不是 `asciiArt`）、`skill`（不是 `skillName`）、`skillDesc`、`skillKind`。用錯就是 `Cannot read properties of undefined (reading 'split')` 系列錯誤。新增角色若 skill 要走 projectile 以外的路徑，**必須填 `skillKind`**（`strike` / `burst` / `dash` / `shield` / `heal`），否則 fallback 會生一顆大子彈。
-- **Socket connect race**：`io({ autoConnect: true })` 回傳的 socket 是同步的，但 `socket.id` 要等 `'connect'` event 才有值。想在 mount 時 emit 必須先 `if (socket.connected) ... else socket.once('connect', ...)`。即便如此，重複 JOIN 已經是 idempotent 的（見 `Lobby.join`），所以 race 的後果最多是 UI 沒更新而不是重複佔 slot。
-- **`match.js` 的 event slice**：見上面「Match tick 的 event 處理」段落。
-- **`useInputCapture` 的按鍵處理**：`skill`（右鍵）必須在讀取後把 `skillPending.current = false`，`attack`（左鍵）**不要改**——因為 attack 靠 server 端 `ATTACK_COOLDOWN_MS` 節流，使用者體感就是「按住連發」。兩者若搞反，右鍵會變 4 shots/sec 的連發，左鍵會變一次性。
-- **左鍵拖出 arena 不放會卡住連打**：`mouseup` 要掛 window 層（不是 arena），另外掛 `window blur` 一併放開。早期只掛 arena mouseup 會卡（曾是 bug `bb8a75c`）。
-- **`facing` 改成弧度**：任何 `facing === 'left' ? -1 : 1` 或 `if (facing === 'up')` 這種字串判斷都是舊碼，會炸——`facing` 現在是 number（radians）。需要水平翻轉貼圖時用 `Math.cos(facing) < 0`。
-- **Projectile 的 `x/y` 是浮點**：不是格子座標，命中判定用歐氏距離平方 `(p.x-x)² + (p.y-y)² ≤ (PLAYER_RADIUS+PROJECTILE_RADIUS)²`。SVG 直接用浮點 `cx / cy` 對應世界座標（viewBox 已對齊）。
-- **Aim 計算要扣掉 letterbox**：SVG 是 `xMidYMid meet`（等比置中），所以 client 把滑鼠座標換算到世界座標時要用 `scale = min(rect.w/W, rect.h/H)` 而不是各軸獨立縮放，否則滑鼠偏離中心時 aim 會歪。
-- **動畫 keyframe 寫在 `index.html`**：`pixelBob` / `hurtFlash` / `floatUp` / `sheetStripesSlide` 都在 `packages/client/index.html` 的 inline `<style>`。React 元件只用字串引用——搬動畫時兩邊要一起改。
-- **Socket event 字串**：寫死 `'snapshot'` 之類的字串可以跑、但 refactor 時會漏改——一律用 `MSG.SNAPSHOT`。
-- **Windows 路徑**：主要開發環境是 Windows，但 shell 是 bash/Git-Bash。寫 path 用正斜線（`/dev/null` 不要寫 `NUL`；forward slashes）。跑 `docker run -v` bind mount 時路徑會被 Git-Bash 當 POSIX 亂 mangle，需要 `MSYS_NO_PATHCONV=1` prefix。
-- **區網防火牆**：LAN 主機要手動在 Windows Defender 放行 :3000 inbound，不然同事連不進來。
-- **Bot AI 與 simulation schema 耦合**：`packages/server/src/bot.js` 直接讀 `state.players[id].{x, y, alive, facing}`；simulation.js 改 schema 時 bot 會連帶壞。Bot 單元測試會第一個變紅——相信測試，別單獨修 bot.js 讓綠燈回來而不看 schema 是否真的改動。
-- **Records 門檻與 UUID**：`records.recordMatch` 會過濾 `!isBot && uuid` 才計入；`uuid=null`（bot 或 legacy client）不會計入個人勝率。MainMenu 那張 Player Card 靠 localStorage UUID 認人——**清空 localStorage = 戰績從此跟這個瀏覽器解綁**（沒有伺服器端的帳號系統）。
+- **Socket connect race**：`io({ autoConnect: true })` 同步回傳 socket，但 `socket.id` 要等 `'connect'` event 才有值。mount 時 emit 必須 `if (socket.connected) ... else socket.once('connect', ...)`。
+- **BR 座標 corner-origin**：viewBox `0 0 20 9`，x ∈ [0, 20], y ∈ [0, 9]。跟舊版 center-origin 不同。
+- **BR covers 是矩形列表 `[c,r,w,h]`**：`simulation` 內用 `expandCovers` 轉成 `Set<"c,r">`。畫 mini-map 的時候**直接用矩形**（別展開成 cells，會多很多 DOM）。
+- **BR bullets 是 float 座標**：命中用 `(p.x-x)² + (p.y-y)² ≤ (PLAYER_RADIUS+PROJECTILE_RADIUS)²`。SVG 直接用 `cx/cy` 對應世界座標。
+- **BR aim 計算要扣 letterbox**：SVG 是 `xMidYMid meet`，所以 client 把滑鼠座標換算世界座標時要用 `scale = min(rect.w/COLS, rect.h/ROWS)`，非獨立縮放。`useInputBR` 已處理。
+- **BR snapshot 裡 poison 是 array，server state 裡是 Set**：`buildSnapshotPayload` 負責轉換。client 讀 `poison.infected` 當 array 用、`severe` 做 O(1) 查詢前要轉成 `new Set(poison.severe)`。
+- **`facing` 是 radians**：任何 `facing === 'left' ? -1 : 1` 這種字串判斷都是舊碼。需要水平翻轉貼圖時用 `Math.cos(facing) < 0`。
+- **`SET_GAME_TYPE` host only**：非 host client 也可以 emit（我們的 Lobby.jsx 就會 emit），server 會回 `not_host` ERROR；client 忽略即可。這是**故意設計**成冪等的——永遠是 host 的版本會生效，LOBBY_STATE 會把正確 gameType 送給其他人。
+- **`left 鍵拖出 arena 不放會卡住連打`**：`mouseup` 要掛 window 層（不是 arena），另外掛 `window blur` 一併放開。`useInputBR` 已處理。
+- **BR events slice**：`match.js` 在 tick 開頭記錄 `eventsStartIdx = this.state.events.length`，tick 結尾用 `state.events.slice(eventsStartIdx)` 切出當 tick 事件再廣播。忘記 slice 的話事件永遠到不了 client。
+- **Windows 路徑**：主要開發環境是 Windows，shell 是 bash/Git-Bash。寫 path 用正斜線（`/dev/null` 不要寫 `NUL`）。
+- **smoke.js 需從 `packages/server/` 執行**（`npm run smoke --workspace @office-colosseum/server`），因為它 `spawn('src/index.js', ...)` 是相對路徑。
 
 ---
 
 ## 已知 v1 限制（刻意的）
 
-- **無 client-side prediction／interpolation**：區網體感良好，WAN 上會明顯感覺到 lag。要上網路對戰得先加 prediction 層。
+- **無 client-side prediction／interpolation**：區網體感良好，WAN 上會明顯感覺到 lag。
 - **斷線＝淘汰**：v1 不支援斷線重連，中場斷線直接判死。
-- **同格不處理碰撞**：兩個玩家可以重疊在同一位置，視覺上會看到貼圖疊在一起。子彈碰到任一個都會結算傷害。
-- **老闆鍵被凍住時仍可被攻擊**：故意的平衡設計，不是 bug，避免 ESC 變無敵盾。
-- **戰績只保留最後 10 場**：寫在 `records.js` 的 `MAX_MATCHES` 常數；超過會捨棄最舊的。個人累計 `players[uuid]` 是 running sum，不會跟著捨棄。
-- **身分靠 localStorage UUID**：清 cookie / 換瀏覽器 / 私密模式 = 新身分。沒有伺服器帳號系統。
-- **Fly.io 單機、沒掛 volume 時戰績會掉**：suspend 重啟後 in-memory 和檔案一起消失（預設 `data/records.json` 寫在容器 layer）。要持久化需掛 fly volume + 設 `RECORDS_PATH`。
+- **同格不處理碰撞**：兩個玩家可以重疊在同一位置。
+- **老闆鍵被凍住時仍可被攻擊**：故意的平衡設計。
+- **戰績只保留最後 10 場**：`records.js` 的 `MAX_MATCHES` 常數；個人累計 running sum 不捨棄。
+- **身分靠 localStorage UUID**：清 cookie / 換瀏覽器 / 私密模式 = 新身分。
+- **Territory 隊伍隨機分配**：目前 Lobby 沒有隊伍選擇 UI，server 在 `createInitialState` 時依 player 加入順序輪詢分隊。若要玩家自選隊伍，需擴充 Lobby。
+- **BR `dash` 無敵僅 0.2s**。
+- **BR 毒圈規則**：30s 後第 1 波（四邊隨機 0.6 機率汙染）、之後每 15s 從 infected 鄰居 0.55 機率擴散；嚴重格扣血 ×2。
+
+---
+
+## 加新遊戲流程
+
+三款遊戲（BR / Items / Territory）都按同一個模板接進多遊戲平台。未來要再加第四款：
+
+1. `packages/shared/src/games/<id>/` 新增 `constants.js + simulation.js + index.js`；simulation 必須 export `createInitialState / applyInput / resolveTick / aliveCount / getWinner / buildSnapshotPayload / buildMatchStartPayload`
+2. `packages/server/src/games/<id>Bot.js` 新 AI，export `decideBotInput(state, botId, now) → input`
+3. 在 `packages/server/src/games/index.js` 的 `GAMES` 物件註冊 `{ sim, bot }`
+4. `packages/shared/src/protocol.js` 的 `GAME_TYPES` 陣列加上 `<id>`
+5. `packages/client/src/screens/battle/<id>/` 新戰鬥元件 + HUD + input hook
+6. `NetworkedBattle.jsx` dispatcher 加分支
+7. `ModeSelect.jsx` MODES 陣列加新卡（或把 `available: true` 解鎖）
+8. `App.jsx` 路由：如果需要先選地圖／隊伍則在 modeSelect 之後加新 screen；否則直接進 lobby
+9. CSS：如果有新的 class 名稱，補進 `packages/client/src/styles/game-ui.css`
