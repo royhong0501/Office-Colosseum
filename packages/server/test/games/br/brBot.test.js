@@ -107,3 +107,52 @@ test('state.players 不存在的 botId → idle 不 crash', () => {
   assert.equal(i.attack, false);
   assert.equal(i.moveX, 0);
 });
+
+/* ---- Cover steering（avoid 撞牆卡住） ---- */
+
+test('cover steering：路徑暢通時直接朝目標（不轉向）', () => {
+  const s = baseState();
+  // 清掉所有 cover，確保路徑暢通
+  s.map.coversSet = new Set();
+  const me = s.players.bot, en = s.players.enemy;
+  me.x = 3; me.y = 4.5;
+  en.x = 18; en.y = 4.5;   // 距離 15 > BULLET_MAX_DIST - 1 → 走追擊分支
+  const i = decideBotInput(s, 'bot', 100);
+  // 應該幾乎正右（baseline 0°）
+  assert.ok(i.moveX > 0.95, `路徑暢通時 moveX 應接近 1，實際 ${i.moveX.toFixed(3)}`);
+  assert.ok(Math.abs(i.moveY) < 0.1, `moveY 應接近 0，實際 ${i.moveY.toFixed(3)}`);
+});
+
+test('cover steering：直線被 cover 擋 → 轉向繞行', () => {
+  const s = baseState();
+  // bot 與敵人間放一片 cover 牆
+  s.map.coversSet = expandCovers([[6, 4, 1, 3]]);  // cell (6, 4..6)
+  const me = s.players.bot, en = s.players.enemy;
+  me.x = 4; me.y = 5;
+  en.x = 10; en.y = 5;
+  const i = decideBotInput(s, 'bot', 100);
+  // 應該不再是純正右方（moveX ≈ 1, moveY ≈ 0）；moveY 會明顯偏移（繞行）
+  const isStraightRight = i.moveX > 0.9 && Math.abs(i.moveY) < 0.15;
+  assert.ok(!isStraightRight, `被擋應繞行，實際 move=(${i.moveX.toFixed(3)}, ${i.moveY.toFixed(3)})`);
+});
+
+test('cover steering：四面被 cover 圍死 + dash CD 到 → 觸發 dash', () => {
+  const s = baseState();
+  // 把 bot 周圍 1 格範圍內所有 cell 填成 cover（除了 bot 自己腳下）
+  // bot 會站在 (5.5, 5.5)，corversSet 含 cell (4..6, 4..6) 除了 (5,5)
+  const covers = [];
+  for (let c = 4; c <= 6; c++) {
+    for (let r = 4; r <= 6; r++) {
+      if (c === 5 && r === 5) continue;
+      covers.push([c, r, 1, 1]);
+    }
+  }
+  s.map.coversSet = expandCovers(covers);
+  const me = s.players.bot, en = s.players.enemy;
+  me.x = 5.5; me.y = 5.5;
+  en.x = 15; en.y = 5;
+  me.dashCdUntil = 0;
+  const i = decideBotInput(s, 'bot', 100);
+  assert.equal(i.dash, true, '四面被封 + CD 到應觸發 dash');
+});
+
