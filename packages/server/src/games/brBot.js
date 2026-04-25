@@ -47,10 +47,22 @@ function canStandCell(coversSet, x, y) {
   return true;
 }
 
-// 從 (x,y) 沿 (dx,dy) 推 distCells 格，每 0.3 格取樣驗 canStandCell
-function pathClearOfCover(coversSet, x, y, dx, dy, distCells = 2.0) {
+// 從 (x,y) 沿 (dx,dy) 推 distCells 格，每 0.3 格取樣驗：
+//   1. canStandCell（避 cover + 出界）
+//   2. 其他活玩家不在路徑 2*PLAYER_RADIUS 半徑內（避互撞 jiggle）
+function pathClear(state, me, dx, dy, distCells = 2.0) {
+  const coversSet = state.map?.coversSet ?? new Set();
+  const others = Object.values(state.players ?? {})
+    .filter(p => p.alive && p.id !== me.id);
+  const avoidR = PLAYER_RADIUS * 2;
+  const avoidRsq = avoidR * avoidR;
   for (let t = 0.3; t <= distCells + 1e-6; t += 0.3) {
-    if (!canStandCell(coversSet, x + dx * t, y + dy * t)) return false;
+    const x = me.x + dx * t, y = me.y + dy * t;
+    if (!canStandCell(coversSet, x, y)) return false;
+    for (const p of others) {
+      const ddx = p.x - x, ddy = p.y - y;
+      if (ddx * ddx + ddy * ddy < avoidRsq) return false;
+    }
   }
   return true;
 }
@@ -58,7 +70,7 @@ function pathClearOfCover(coversSet, x, y, dx, dy, distCells = 2.0) {
 // 從 baseline 向量出發測候選偏移角（0/±30/±60/±90°），選第一個能通的。
 // id 奇偶決定優先先試左或右，避免多 bot 全部往同一邊擠。
 // 全部擋死 → 回傳 null（呼叫端可選 dash 或 idle）。
-function findSteerDirection(coversSet, me, baseX, baseY, botId) {
+function findSteerDirection(state, me, baseX, baseY, botId) {
   const L = Math.hypot(baseX, baseY);
   if (L < 1e-6) return null;
   const baseAng = Math.atan2(baseY, baseX);
@@ -75,7 +87,7 @@ function findSteerDirection(coversSet, me, baseX, baseY, botId) {
   for (const off of offsets) {
     const a = baseAng + off;
     const dx = Math.cos(a), dy = Math.sin(a);
-    if (pathClearOfCover(coversSet, me.x, me.y, dx, dy, 2.0)) {
+    if (pathClear(state, me, dx, dy, 2.0)) {
       return { moveX: dx, moveY: dy };
     }
   }
@@ -103,12 +115,12 @@ function idleInput(seq = 0) {
   };
 }
 
-// 把 baseline 向量（dx, dy）套 cover steering。回傳 {moveX, moveY, blocked}。
-// blocked=true 表示連 90° 偏移也無法通，呼叫端可考慮 dash。
-function steeredMove(coversSet, me, dx, dy, botId) {
+// 把 baseline 向量（dx, dy）套 steering（cover + 其他玩家避讓）。
+// 回傳 {moveX, moveY, blocked}；blocked=true 表示連 90° 偏移也無法通，呼叫端可考慮 dash。
+function steeredMove(state, me, dx, dy, botId) {
   const L = Math.hypot(dx, dy) || 1;
   const baseX = dx / L, baseY = dy / L;
-  const dir = findSteerDirection(coversSet, me, baseX, baseY, botId);
+  const dir = findSteerDirection(state, me, baseX, baseY, botId);
   if (dir) return { moveX: dir.moveX, moveY: dir.moveY, blocked: false };
   return { moveX: baseX, moveY: baseY, blocked: true };
 }
@@ -128,7 +140,7 @@ export function decideBotInput(state, botId, now) {
     if (onPoison) {
       const cx = ARENA_COLS / 2, cy = ARENA_ROWS / 2;
       const dx = cx - me.x, dy = cy - me.y;
-      const steer = steeredMove(coversSet, me, dx, dy, botId);
+      const steer = steeredMove(state, me, dx, dy, botId);
       input.moveX = steer.moveX;
       input.moveY = steer.moveY;
       input.shield = false;
@@ -151,7 +163,7 @@ export function decideBotInput(state, botId, now) {
 
     // 距離 > max range 或視線被擋 → 靠近（cover steering），不射
     if (!canSee || d > BULLET_MAX_DIST - 1) {
-      const steer = steeredMove(coversSet, me, dx, dy, botId);
+      const steer = steeredMove(state, me, dx, dy, botId);
       input.moveX = steer.moveX;
       input.moveY = steer.moveY;
       input.attack = false;
@@ -162,16 +174,19 @@ export function decideBotInput(state, botId, now) {
       // 中距離維持 5~7 格
       const desired = 5;
       if (d > desired + 1.5) {
-        const steer = steeredMove(coversSet, me, dx, dy, botId);
+        const steer = steeredMove(state, me, dx, dy, botId);
         input.moveX = steer.moveX; input.moveY = steer.moveY;
       } else if (d < desired - 1) {
-        const steer = steeredMove(coversSet, me, -dx, -dy, botId);
+        const steer = steeredMove(state, me, -dx, -dy, botId);
         input.moveX = steer.moveX; input.moveY = steer.moveY;
       } else {
-        // 切線繞圈（依 id 決定方向避免全部撞在一起）
+        // 切線繞圈 + steering 避其他玩家（不然兩 bot 繞同目標時切線會交會卡在軟碰撞裡）
         const sign = botId.charCodeAt(botId.length - 1) % 2 === 0 ? 1 : -1;
-        input.moveX = (-dy / dSafe) * sign;
-        input.moveY = (dx / dSafe) * sign;
+        const tanX = (-dy / dSafe) * sign;
+        const tanY = (dx / dSafe) * sign;
+        const steer = steeredMove(state, me, tanX, tanY, botId);
+        input.moveX = steer.moveX;
+        input.moveY = steer.moveY;
       }
       input.attack = true;
     }

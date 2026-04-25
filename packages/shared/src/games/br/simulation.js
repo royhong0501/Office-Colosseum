@@ -240,6 +240,38 @@ export function resolveTick(state, now, rng = Math.random) {
     p.y = clamp(p.y, PLAYER_RADIUS, ARENA_ROWS - PLAYER_RADIUS);
   }
 
+  // player↔player 軟碰撞（push-apart）：避免兩人疊同點造成視覺卡死 + bot jiggle。
+  // 跑 2 次 pass 讓多玩家疊加也能收斂；推開時 canStand check 避免被推進 cover。
+  {
+    const minDist = PLAYER_RADIUS * 2;
+    const minDistSq = minDist * minDist;
+    for (let pass = 0; pass < 2; pass++) {
+      const entries = Object.values(state.players).filter(p => p.alive && !p.paused);
+      for (let i = 0; i < entries.length; i++) {
+        for (let j = i + 1; j < entries.length; j++) {
+          const a = entries[i], b = entries[j];
+          let dx = b.x - a.x, dy = b.y - a.y;
+          const dSq = dx * dx + dy * dy;
+          if (dSq >= minDistSq) continue;
+          let d = Math.sqrt(dSq);
+          if (d < 1e-6) {
+            dx = 0.01 * (i < j ? 1 : -1);
+            dy = 0.01 * (i < j ? 1 : -1);
+            d = Math.hypot(dx, dy);
+          }
+          const overlap = minDist - d;
+          const push = overlap / 2 + 0.001;
+          const ax = clamp(a.x - (dx / d) * push, PLAYER_RADIUS, ARENA_COLS - PLAYER_RADIUS);
+          const ay = clamp(a.y - (dy / d) * push, PLAYER_RADIUS, ARENA_ROWS - PLAYER_RADIUS);
+          const bx = clamp(b.x + (dx / d) * push, PLAYER_RADIUS, ARENA_COLS - PLAYER_RADIUS);
+          const by = clamp(b.y + (dy / d) * push, PLAYER_RADIUS, ARENA_ROWS - PLAYER_RADIUS);
+          if (canStand(state.map.coversSet, ax, ay)) { a.x = ax; a.y = ay; }
+          if (canStand(state.map.coversSet, bx, by)) { b.x = bx; b.y = by; }
+        }
+      }
+    }
+  }
+
   // 子彈步進 + 碰撞
   const survivingBullets = [];
   for (const b of state.bullets) {

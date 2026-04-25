@@ -1,16 +1,60 @@
+// 戰績持久化（v2 schema）— 多遊戲平台專屬。
+// v1（舊 arena 版）schema 不相容，init 讀到會直接捨棄重起新檔。
+//
+// Schema：
+//   data = { version: 2, players: { [uuid]: Player }, matches: Match[] }
+//   Player = {
+//     uuid, lastName, firstSeenAt, lastSeenAt,
+//     matches, wins,                            // 總計（跨 gameType）
+//     byGameType: {
+//       'battle-royale': { matches, wins, ...brStatKeys },
+//       'items':         { matches, wins, ...itemsStatKeys },
+//       'territory':     { matches, wins, ...territoryStatKeys },
+//     },
+//     byCharacter: { [characterId]: { matches, wins } },  // 皮膚使用（簡化）
+//   }
+//   Match = {
+//     id, gameType, config, startedAt, endedAt, durationMs,
+//     winnerUuid, winnerName,
+//     participants: [{
+//       uuid, name, characterId, isWinner, isBot,
+//       survivedTicks,                   // 通用
+//       stats: { /* gameType 特有，見下方 STAT_KEYS */ },
+//     }]
+//   }
+
 import fs from 'node:fs';
 import path from 'node:path';
 
+export const SCHEMA_VERSION = 2;
 export const MAX_MATCHES = 10;
 export const MIN_REAL_PLAYERS = 2;
 const WRITE_DEBOUNCE_MS = 1000;
+
+// 每款遊戲聚合會累加的 stat keys（都是數字）。client leaderboard 也依賴這組 keys。
+export const STAT_KEYS = {
+  'battle-royale': [
+    'damageDealt', 'damageTaken', 'kills',
+    'bulletsFired', 'bulletsHit', 'dashUsed',
+  ],
+  'items': [
+    'damageDealt', 'damageTaken', 'kills',
+    'skillsCast', 'trapsPlaced', 'trapsTriggered',
+    'undoUsed',
+  ],
+  'territory': [
+    'cellsPainted', 'areasCaptured', 'cellsCapturedByFormatbrush',
+    'teamCellsAtEnd',
+    // teamId 不是數值、不計入聚合
+  ],
+};
 
 let data = emptyData();
 let filePath = null;
 let writeTimer = null;
 
 function emptyData() {
-  return { version: 1, players: {}, matches: [] };
+  return { version: SCHEMA_VERSION, players: {}, matches: [] };
 }
 
 function writeNow() {
@@ -41,8 +85,10 @@ export function init(dbPath) {
     if (fs.existsSync(filePath)) {
       const raw = fs.readFileSync(filePath, 'utf8');
       const parsed = JSON.parse(raw);
-      if (parsed?.version === 1 && parsed.players && Array.isArray(parsed.matches)) {
+      if (parsed?.version === SCHEMA_VERSION && parsed.players && Array.isArray(parsed.matches)) {
         data = parsed;
+      } else {
+        console.warn('[records] schema mismatch (found v%s, expected v%s) — starting fresh', parsed?.version, SCHEMA_VERSION);
       }
     }
   } catch (e) {
@@ -51,19 +97,72 @@ export function init(dbPath) {
   }
 }
 
-// participants: [{ uuid, name, characterId, dmgDealt, dmgTaken, survivedTicks, isWinner, isBot }]
-// 至少要有 MIN_REAL_PLAYERS 個非 bot 且有 uuid 的參與者才記錄
+function ensurePlayerRec(uuid, name, endedAt) {
+  let rec = data.players[uuid];
+  if (!rec) {
+    rec = data.players[uuid] = {
+      uuid,
+      lastName: name,
+      firstSeenAt: endedAt,
+      lastSeenAt: endedAt,
+      matches: 0, wins: 0,
+      byGameType: {},
+      byCharacter: {},
+    };
+  }
+  rec.lastName = name;
+  rec.lastSeenAt = endedAt;
+  return rec;
+}
+
+function ensureByGameType(rec, gameType) {
+  let g = rec.byGameType[gameType];
+  if (!g) {
+    g = rec.byGameType[gameType] = { matches: 0, wins: 0 };
+    for (const k of STAT_KEYS[gameType] ?? []) g[k] = 0;
+  }
+  return g;
+}
+
+function ensureByCharacter(rec, characterId) {
+  let c = rec.byCharacter[characterId];
+  if (!c) c = rec.byCharacter[characterId] = { matches: 0, wins: 0 };
+  return c;
+}
+
+/**
+ * 紀錄一場對戰。
+ *   gameType: 'battle-royale' | 'items' | 'territory'
+ *   config:   遊戲專屬設定（例如 BR 的 mapId）
+ *   participants: [{
+ *     uuid, name, characterId, isWinner, isBot,
+ *     survivedTicks,
+ *     stats: { ...gameType 對應 STAT_KEYS 的 key → number },
+ *   }]
+ */
 export function recordMatch({ gameType, config, startedAt, endedAt, participants }) {
   const realParticipants = participants.filter(p => !p.isBot && p.uuid);
   if (realParticipants.length < MIN_REAL_PLAYERS) {
     return { skipped: true, reason: 'not_enough_real_players' };
   }
 
+  const gt = gameType ?? 'battle-royale';
+  const statKeys = STAT_KEYS[gt] ?? [];
   const winner = realParticipants.find(p => p.isWinner) ?? null;
   const matchId = `m-${endedAt}-${Math.random().toString(36).slice(2, 5)}`;
+
+  // 清理每位參與者的 stats：只留該 gameType 承認的 keys
+  function sanitizeStats(raw) {
+    const out = {};
+    for (const k of statKeys) out[k] = (raw?.[k] | 0) || 0;
+    // territory 有非數值 teamId 要保留（整數，不是 sum 欄）
+    if (gt === 'territory' && typeof raw?.teamId === 'number') out.teamId = raw.teamId;
+    return out;
+  }
+
   const match = {
     id: matchId,
-    gameType: gameType ?? 'battle-royale',
+    gameType: gt,
     config: config ?? {},
     startedAt, endedAt,
     durationMs: Math.max(0, endedAt - startedAt),
@@ -73,11 +172,10 @@ export function recordMatch({ gameType, config, startedAt, endedAt, participants
       uuid: p.uuid ?? null,
       name: p.name ?? '',
       characterId: p.characterId,
-      dmgDealt: p.dmgDealt | 0,
-      dmgTaken: p.dmgTaken | 0,
-      survivedTicks: p.survivedTicks | 0,
       isWinner: !!p.isWinner,
       isBot: !!p.isBot,
+      survivedTicks: p.survivedTicks | 0,
+      stats: sanitizeStats(p.stats),
     })),
   };
   data.matches.push(match);
@@ -86,37 +184,22 @@ export function recordMatch({ gameType, config, startedAt, endedAt, participants
   }
 
   for (const p of realParticipants) {
-    let rec = data.players[p.uuid];
-    if (!rec) {
-      rec = data.players[p.uuid] = {
-        uuid: p.uuid,
-        lastName: p.name,
-        firstSeenAt: endedAt,
-        lastSeenAt: endedAt,
-        matches: 0, wins: 0,
-        dmgDealt: 0, dmgTaken: 0, survivedTicks: 0,
-        byCharacter: {},
-      };
-    }
-    rec.lastName = p.name;
-    rec.lastSeenAt = endedAt;
+    const rec = ensurePlayerRec(p.uuid, p.name, endedAt);
     rec.matches++;
     if (p.isWinner) rec.wins++;
-    rec.dmgDealt += p.dmgDealt | 0;
-    rec.dmgTaken += p.dmgTaken | 0;
-    rec.survivedTicks += p.survivedTicks | 0;
 
-    let charRec = rec.byCharacter[p.characterId];
-    if (!charRec) {
-      charRec = rec.byCharacter[p.characterId] = {
-        matches: 0, wins: 0, dmgDealt: 0, dmgTaken: 0, survivedTicks: 0,
-      };
+    const g = ensureByGameType(rec, gt);
+    g.matches++;
+    if (p.isWinner) g.wins++;
+    for (const k of statKeys) {
+      g[k] = (g[k] | 0) + ((p.stats?.[k] | 0) || 0);
     }
-    charRec.matches++;
-    if (p.isWinner) charRec.wins++;
-    charRec.dmgDealt += p.dmgDealt | 0;
-    charRec.dmgTaken += p.dmgTaken | 0;
-    charRec.survivedTicks += p.survivedTicks | 0;
+
+    if (p.characterId) {
+      const c = ensureByCharacter(rec, p.characterId);
+      c.matches++;
+      if (p.isWinner) c.wins++;
+    }
   }
 
   scheduleWrite();
@@ -131,13 +214,11 @@ export function getSnapshot() {
   };
 }
 
-// 測試用：重置記憶體狀態、不刪檔
+// 測試用
 export function _reset() {
   data = emptyData();
   if (writeTimer) { clearTimeout(writeTimer); writeTimer = null; }
 }
-
-// 測試用：立刻寫檔（跳過 debounce）
 export function _flush() {
   if (writeTimer) { clearTimeout(writeTimer); writeTimer = null; }
   writeNow();

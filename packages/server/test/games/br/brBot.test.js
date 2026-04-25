@@ -136,6 +136,26 @@ test('cover steering：直線被 cover 擋 → 轉向繞行', () => {
   assert.ok(!isStraightRight, `被擋應繞行，實際 move=(${i.moveX.toFixed(3)}, ${i.moveY.toFixed(3)})`);
 });
 
+test('player 避讓：另一玩家擋在直線路徑上 → 轉向繞過', () => {
+  const s = createInitialState(
+    [
+      { id: 'bot', characterId: 'munchkin' },
+      { id: 'enemy', characterId: 'husky' },
+      { id: 'blocker', characterId: 'corgi' },
+    ],
+    config0,
+    0,
+  );
+  s.map.coversSet = new Set();  // 沒 cover，只靠 blocker 擋路
+  s.players.bot.x = 3; s.players.bot.y = 5;
+  s.players.enemy.x = 18; s.players.enemy.y = 5;       // 距離 15 → 走追擊分支
+  s.players.blocker.x = 5; s.players.blocker.y = 5;    // 正好擋在 bot 前方 2 格內
+  const i = decideBotInput(s, 'bot', 100);
+  // 不該純正右方（會直接撞 blocker）；應偏移
+  const isStraightRight = i.moveX > 0.95 && Math.abs(i.moveY) < 0.15;
+  assert.ok(!isStraightRight, `擋路時應繞行，實際 move=(${i.moveX.toFixed(3)}, ${i.moveY.toFixed(3)})`);
+});
+
 test('cover steering：四面被 cover 圍死 + dash CD 到 → 觸發 dash', () => {
   const s = baseState();
   // 把 bot 周圍 1 格範圍內所有 cell 填成 cover（除了 bot 自己腳下）

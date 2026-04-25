@@ -252,7 +252,7 @@ export function resolveTick(state, now, rng = Math.random) {
     }
     if (triggered) {
       applyTrapEffect(state, t, triggered, now, rng);
-      state.events.push({ type: 'trap_triggered', id: t.id, kind: t.kind, cx: t.cx, cy: t.cy, victimId: triggered.id });
+      state.events.push({ type: 'trap_triggered', id: t.id, kind: t.kind, cx: t.cx, cy: t.cy, ownerId: t.ownerId, victimId: triggered.id });
     } else {
       remainingTraps.push(t);
     }

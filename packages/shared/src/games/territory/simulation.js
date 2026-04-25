@@ -171,6 +171,7 @@ export function resolveTick(state, now, _rng = Math.random) {
   }
 
   // 碰撞後才結算所在 cell 的塗色（避免碰撞前塗錯格）
+  // 每個 player 一個 paint event，帶 playerId → match stats 可精準歸責
   for (const p of Object.values(state.players)) {
     if (!p.alive || p.paused) continue;
     const cx = Math.floor(p.x), cy = Math.floor(p.y);
@@ -178,11 +179,9 @@ export function resolveTick(state, now, _rng = Math.random) {
     const prev = state.cells[key];
     if (prev !== p.teamId) {
       state.cells[key] = p.teamId;
-      paintedNow.push({ key, cx, cy, teamId: p.teamId });
+      paintedNow.push({ key, cx, cy, teamId: p.teamId, playerId: p.id });
+      state.events.push({ type: 'paint', playerId: p.id, teamId: p.teamId, cells: [[cx, cy]] });
     }
-  }
-  if (paintedNow.length) {
-    state.events.push({ type: 'paint', cells: paintedNow.map(pp => [pp.cx, pp.cy, pp.teamId]) });
   }
 
   // 每個剛剛塗色的隊伍跑一次 flood fill 檢查封閉區塊
