@@ -4,7 +4,7 @@
 
 import { TICK_MS, MSG } from '@office-colosseum/shared';
 import { loadGame } from './games/index.js';
-import * as records from './records.js';
+import * as matchService from './services/matchService.js';
 
 export class Match {
   constructor(io, lobbyPlayers, gameType, config, onEnd) {
@@ -18,8 +18,8 @@ export class Match {
     this.game = game;
     this.players = lobbyPlayers.map(p => ({
       id: p.id,
-      name: p.name,
-      uuid: p.uuid ?? null,
+      displayName: p.displayName ?? p.name ?? '',
+      userId: p.userId ?? null,
       characterId: p.characterId,
       isBot: !!p.isBot,
     }));
@@ -93,8 +93,8 @@ export class Match {
     const winnerId = this.game.sim.getWinner(this.state);
     const endedAt = Date.now();
     const participants = this.players.map(p => ({
-      uuid: p.uuid,
-      name: p.name,
+      userId: p.userId,
+      displayName: p.displayName,
       characterId: p.characterId,
       dmgDealt: this.stats[p.id]?.dmgDealt ?? 0,
       dmgTaken: this.stats[p.id]?.dmgTaken ?? 0,
@@ -102,17 +102,13 @@ export class Match {
       isWinner: p.id === winnerId,
       isBot: !!p.isBot,
     }));
-    try {
-      records.recordMatch({
-        gameType: this.gameType,
-        config: this.config,
-        startedAt: this.startedAtMs,
-        endedAt,
-        participants,
-      });
-    } catch (err) {
-      console.warn('[match] records.recordMatch failed:', err.message);
-    }
+    matchService.recordMatch({
+      gameType: this.gameType,
+      config: this.config,
+      startedAt: this.startedAtMs,
+      endedAt,
+      participants,
+    }).catch(err => console.warn('[match] recordMatch failed:', err.message));
     this.io.emit(MSG.MATCH_END, { winnerId, summary: this.stats });
     if (this.onEnd) this.onEnd();
   }

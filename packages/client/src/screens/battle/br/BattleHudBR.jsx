@@ -2,7 +2,7 @@
 
 import { getCharacterById } from '@office-colosseum/shared';
 import {
-  DASH_CD_MS, MAX_HP,
+  DASH_CD_MS, MAX_HP, SHIELD_MAX_HP, SHIELD_ARC_DEG,
 } from '@office-colosseum/shared/src/games/br/constants.js';
 
 function fmtSec(ms) {
@@ -73,21 +73,52 @@ export default function BattleHudBR({ selfId, players, poison, now }) {
               </span>
             </div>
           </div>
-          {/* Shield status */}
-          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              width: 32, height: 24, border: '1px solid var(--line)',
-              background: self.shielding ? 'var(--accent-link)' : 'var(--bg-paper-alt)',
-              color: self.shielding ? 'var(--bg-paper)' : 'var(--ink-muted)',
-              fontFamily: 'var(--font-mono)', fontSize: 10,
-            }}>
-              SHIELD
-            </span>
-            <span style={{ fontSize: 10, color: 'var(--ink-muted)' }}>
-              {self.shielding ? 'RMB 舉盾中 · −40% 移速' : 'RMB 按住舉盾'}
-            </span>
-          </div>
+          {/* Shield bar — 耐久條 + 破盾倒數 */}
+          {(() => {
+            const shieldHp = self.shieldHp ?? SHIELD_MAX_HP;
+            const shieldMax = self.shieldMaxHp ?? SHIELD_MAX_HP;
+            const broken = shieldHp <= 0;
+            const brokenIn = Math.max(0, (self.shieldBrokenUntil ?? 0) - now);
+            const pct = shieldMax > 0 ? shieldHp / shieldMax : 0;
+            const barColor = pct >= 0.7 ? 'var(--accent-link)'
+              : pct >= 0.3 ? '#c79a1a'
+              : 'var(--accent-danger)';
+            const labelBg = broken ? 'var(--accent-danger)'
+              : self.shielding ? 'var(--accent-link)'
+              : 'var(--bg-paper-alt)';
+            const labelColor = (broken || self.shielding) ? 'var(--bg-paper)' : 'var(--ink-muted)';
+            return (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    width: 56, height: 22, border: '1px solid var(--line)',
+                    background: labelBg, color: labelColor,
+                    fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: 0.5,
+                  }}>
+                    {broken ? 'BROKEN' : 'SHIELD'}
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-soft)' }}>
+                    {broken
+                      ? `碎裂中 ${(brokenIn / 1000).toFixed(1)}s`
+                      : `${shieldHp} / ${shieldMax}`}
+                  </span>
+                </div>
+                {/* 耐久 bar */}
+                <div style={{ height: 6, background: 'var(--bg-input)', border: '1px solid var(--line-soft)', marginTop: 4 }}>
+                  <div style={{
+                    width: `${(broken ? (1 - brokenIn / 5000) : pct) * 100}%`,
+                    height: '100%',
+                    background: broken ? 'var(--ink-muted)' : barColor,
+                    transition: 'width 0.1s linear',
+                  }} />
+                </div>
+                <div style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)', marginTop: 3 }}>
+                  RMB · 前 {SHIELD_ARC_DEG}° 弧形 · {self.shielding ? '−40% 移速 · LMB 互斥' : '按住舉盾'}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -148,7 +179,7 @@ export default function BattleHudBR({ selfId, players, poison, now }) {
         <div style={{ color: 'var(--ink-soft)', fontWeight: 600, marginBottom: 4 }}>操作提示</div>
         <div>WASD / ↑↓←→ 移動</div>
         <div>滑鼠 aim · LMB 射擊</div>
-        <div>RMB 舉盾（−70% 傷害）</div>
+        <div>RMB 舉盾（前 {SHIELD_ARC_DEG}° 完全擋下 · {SHIELD_MAX_HP} 耐久）</div>
         <div>Shift 衝刺（2 格 · 0.2s 無敵）</div>
         <div>ESC 老闆鍵</div>
       </div>

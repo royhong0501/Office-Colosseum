@@ -1,8 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MSG, getCharacterById, TICK_MS } from '@office-colosseum/shared';
 import { getSocket } from '../net/socket.js';
-import { getPlayerUuid, getStoredPlayerName } from '../lib/playerIdentity.js';
+import { getCurrentUser } from '../lib/auth.js';
 import SheetWindow from '../components/SheetWindow.jsx';
+
+// matchService.getSnapshot 不再做 byCharacter 聚合 — 由 client 從 matches 算
+function buildByCharacter(matches, userId) {
+  const out = {};
+  for (const m of matches ?? []) {
+    const mine = m.participants?.find(p => p.userId === userId);
+    if (!mine) continue;
+    const cid = mine.characterId;
+    if (!out[cid]) out[cid] = { matches: 0, wins: 0, dmgDealt: 0, dmgTaken: 0, survivedTicks: 0 };
+    const r = out[cid];
+    r.matches++;
+    if (mine.isWinner) r.wins++;
+    r.dmgDealt += mine.dmgDealt | 0;
+    r.dmgTaken += mine.dmgTaken | 0;
+    r.survivedTicks += mine.survivedTicks | 0;
+  }
+  return out;
+}
 
 function fmtTime(ms) {
   if (!ms) return '—';
@@ -60,7 +78,7 @@ function LineChart({ matches, myUuid }) {
     .slice()
     .sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0))
     .map((m) => {
-      const mine = m.participants?.find((p) => p.uuid === myUuid);
+      const mine = m.participants?.find((p) => p.userId === myUuid);
       return {
         matchId: m.id,
         endedAt: m.endedAt,
@@ -268,7 +286,7 @@ function RecentMatches({ matches, myUuid }) {
         ))}
       </div>
       {matches.map((m, i) => {
-        const mine = m.participants?.find((p) => p.uuid === myUuid);
+        const mine = m.participants?.find((p) => p.userId === myUuid);
         const char = mine ? (getCharacterById(mine.characterId)?.name ?? mine.characterId) : '—';
         return (
           <div key={m.id} style={{
@@ -320,7 +338,7 @@ function Leaderboard({ rows, myUuid }) {
         borderBottom: '1px solid var(--line-soft)',
         fontSize: 10, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)',
       }}>
-        {['#', '玩家', '場數', '勝場', '勝率', '愛用角色'].map((h, i) => (
+        {['#', '玩家', '場數', '勝場', '勝率', '平均傷害'].map((h, i) => (
           <div key={i} style={{
             padding: '4px 8px',
             borderRight: i < 5 ? '1px solid var(--line-soft)' : 'none',
@@ -329,11 +347,9 @@ function Leaderboard({ rows, myUuid }) {
         ))}
       </div>
       {rows.map((p, idx) => {
-        const isMe = p.uuid === myUuid;
-        const top = topCharacter(p.byCharacter);
-        const topName = top ? (getCharacterById(top.id)?.name ?? top.id) : '—';
+        const isMe = p.id === myUuid;
         return (
-          <div key={p.uuid} style={{
+          <div key={p.id} style={{
             display: 'grid',
             gridTemplateColumns: '36px 1fr 60px 60px 70px 110px',
             fontSize: 11, fontFamily: 'var(--font-mono)',
@@ -346,7 +362,7 @@ function Leaderboard({ rows, myUuid }) {
             </div>
             <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)', color: 'var(--ink)' }}>
               {isMe && <span style={{ color: 'var(--accent)' }}>★ </span>}
-              {p.lastName}
+              {p.displayName}
               {isMe && <span style={{ color: 'var(--ink-muted)', fontWeight: 400 }}> (你)</span>}
             </div>
             <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)', textAlign: 'right' }}>
@@ -358,8 +374,8 @@ function Leaderboard({ rows, myUuid }) {
             <div style={{ padding: '5px 8px', borderRight: '1px solid var(--line-soft)', textAlign: 'right' }}>
               {fmtPct(p.wins, p.matches)}
             </div>
-            <div style={{ padding: '5px 8px', color: 'var(--ink-soft)' }}>
-              {topName}
+            <div style={{ padding: '5px 8px', color: 'var(--ink-soft)', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+              {p.matches > 0 ? Math.round(p.dmgDealt / p.matches) : '—'}
             </div>
           </div>
         );
@@ -372,8 +388,9 @@ export default function MatchHistory({ onBack }) {
   const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('mine');
-  const myUuid = useMemo(() => getPlayerUuid(), []);
-  const playerName = getStoredPlayerName() || 'Player';
+  const currentUser = getCurrentUser();
+  const myUuid = currentUser?.id ?? '';
+  const playerName = currentUser?.displayName || 'Player';
 
   useEffect(() => {
     const socket = getSocket();
@@ -388,7 +405,16 @@ export default function MatchHistory({ onBack }) {
     };
   }, []);
 
-  const me = snapshot?.players?.[myUuid] ?? null;
+  // 從 array 找出自己的聚合（給 SummaryCard / CharacterUsage / 等已經寫好的元件用）
+  const myAgg = (snapshot?.players ?? []).find(p => p.id === myUuid) ?? null;
+  // byCharacter 由 client 從 matches 算（matchService 不再聚合到這層）
+  const myByCharacter = useMemo(
+    () => buildByCharacter(snapshot?.matches, myUuid),
+    [snapshot, myUuid],
+  );
+  const me = myAgg
+    ? { ...myAgg, byCharacter: myByCharacter, lastName: myAgg.displayName, lastSeenAt: myAgg.lastLoginAt }
+    : null;
   const myTopChar = me ? topCharacter(me.byCharacter) : null;
   const myTopCharName = myTopChar
     ? (getCharacterById(myTopChar.id)?.name ?? myTopChar.id)
@@ -397,7 +423,8 @@ export default function MatchHistory({ onBack }) {
 
   const leaderboard = useMemo(() => {
     if (!snapshot) return [];
-    return Object.values(snapshot.players)
+    const arr = Array.isArray(snapshot.players) ? snapshot.players : [];
+    return [...arr]
       .sort((a, b) => (b.matches - a.matches) || ((b.wins / (b.matches || 1)) - (a.wins / (a.matches || 1))))
       .slice(0, 10);
   }, [snapshot]);

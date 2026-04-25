@@ -1,0 +1,68 @@
+// Office Colosseum DB schema。
+// User: 帳號（admin 發放）；Match / MatchParticipant: 戰績。
+// 不再保留「最多 10 場」上限（DB 隨便存），查詢層分頁。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  PLAYER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  role         Role     @default(PLAYER)
+  displayName  String
+  disabled     Boolean  @default(false)
+  createdById  String?
+  createdBy    User?    @relation("Created", fields: [createdById], references: [id])
+  created      User[]   @relation("Created")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  lastLoginAt  DateTime?
+
+  participants MatchParticipant[]
+  wonMatches   Match[]            @relation("Winner")
+}
+
+model Match {
+  id           String   @id @default(cuid())
+  gameType     String
+  config       Json
+  startedAt    DateTime
+  endedAt      DateTime
+  durationMs   Int
+  winnerId     String?
+  winner       User?    @relation("Winner", fields: [winnerId], references: [id])
+  participants MatchParticipant[]
+  createdAt    DateTime @default(now())
+
+  @@index([gameType, endedAt])
+}
+
+model MatchParticipant {
+  id            String  @id @default(cuid())
+  matchId       String
+  userId        String?
+  characterId   String
+  isBot         Boolean @default(false)
+  displayName   String
+  dmgDealt      Int
+  dmgTaken      Int
+  survivedTicks Int
+  isWinner      Boolean
+  match         Match   @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user          User?   @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([matchId])
+}

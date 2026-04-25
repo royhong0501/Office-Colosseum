@@ -1,8 +1,7 @@
-import { useState, useMemo, useEffect } from 'react';
-import { MSG, getCharacterById } from '@office-colosseum/shared';
-import {
-  getStoredPlayerName, setPlayerName, getPlayerUuid, PLAYER_NAME_MAX,
-} from '../lib/playerIdentity.js';
+import { useState, useEffect } from 'react';
+import { MSG } from '@office-colosseum/shared';
+import { getCurrentUser, updateDisplayName, isAdmin } from '../lib/auth.js';
+import { PLAYER_NAME_MAX } from '../lib/playerIdentity.js';
 import { getSocket } from '../net/socket.js';
 import SheetWindow from '../components/SheetWindow.jsx';
 
@@ -18,21 +17,16 @@ function formatDate(ts) {
   return `${d.getFullYear()}/${mm}/${dd}`;
 }
 
-function computePlayerStats(records, uuid) {
-  if (!records || !uuid) return null;
-  const rec = records.players?.[uuid];
+function computePlayerStats(records, userId) {
+  if (!records || !userId) return null;
+  const list = Array.isArray(records.players) ? records.players : [];
+  const rec = list.find(p => p.id === userId);
   if (!rec) return null;
   const winRate = rec.matches > 0 ? (rec.wins / rec.matches) * 100 : 0;
-  let favId = null, favCount = 0;
-  for (const [id, r] of Object.entries(rec.byCharacter ?? {})) {
-    if (r.matches > favCount) { favCount = r.matches; favId = id; }
-  }
-  const favChar = favId ? getCharacterById(favId)?.name ?? favId : null;
   return {
     matches: rec.matches ?? 0,
+    wins: rec.wins ?? 0,
     winRate,
-    favChar,
-    favCount,
   };
 }
 
@@ -141,17 +135,18 @@ function TemplateThumbnail({ id }) {
   );
 }
 
-export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
-  const [name, setName] = useState(getStoredPlayerName());
+export default function MainMenu({ user, onStart, onOpenCharacters, onOpenHistory, onOpenAdmin, onLogout }) {
+  const me = user ?? getCurrentUser();
+  const [name, setName] = useState(me?.displayName ?? '');
   const [records, setRecords] = useState(null);
   const [hoveredTpl, setHoveredTpl] = useState(null);
-  const placeholder = useMemo(
-    () => `Player-${Math.random().toString(36).slice(2, 6)}`,
-    [],
-  );
-  const uuid = useMemo(() => getPlayerUuid(), []);
-  const commitName = () => setPlayerName(name);
-  const displayName = name?.trim() || placeholder;
+  const userId = me?.id ?? '';
+  const username = me?.username ?? '';
+  const displayName = name?.trim() || me?.displayName || 'Player';
+  const commitName = () => {
+    const next = (name ?? '').trim();
+    if (next && next !== me?.displayName) updateDisplayName(next).catch(() => {});
+  };
 
   useEffect(() => {
     const socket = getSocket();
@@ -166,13 +161,19 @@ export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
     };
   }, []);
 
-  const stats = computePlayerStats(records, uuid);
+  const stats = computePlayerStats(records, userId);
   const recentFiles = computeRecentFiles(records, 4);
+  const templates = onOpenAdmin ? [...TEMPLATES, {
+    id: 'admin', title: '使用者管理', badge: 'ADMIN',
+    formula: '=ADMIN.LIST_USERS()',
+    desc: '建立 / 停用 / 重設密碼 — 僅管理員可見',
+  }] : TEMPLATES;
 
   const handleTemplate = (id) => {
     if (id === 'online') onStart?.();
     else if (id === 'characters') onOpenCharacters?.();
     else if (id === 'history') onOpenHistory?.();
+    else if (id === 'admin') onOpenAdmin?.();
   };
 
   return (
@@ -191,7 +192,7 @@ export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
       }}
       statusLeft="就緒 — 請選擇範本以建立新檔案"
       statusRight={stats
-        ? `範本數: 3 | 總場次: ${stats.matches} | 常用: ${stats.favChar ?? '—'}`
+        ? `範本數: 3 | 總場次: ${stats.matches} | 勝場: ${stats.wins}`
         : '範本數: 3 | 尚無戰績'}
       fullscreen
     >
@@ -254,7 +255,7 @@ export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
                   {displayName}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>
-                  ID: {uuid.slice(0, 8)}
+                  @{username || '—'}{isAdmin() && <span style={{ marginLeft: 6, color: 'var(--accent)', fontWeight: 600 }}>ADMIN</span>}
                 </div>
               </div>
             </div>
@@ -265,8 +266,8 @@ export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
             }}>
               {[
                 { label: '場次', value: stats?.matches ?? 0 },
+                { label: '勝場', value: stats?.wins ?? 0 },
                 { label: '勝率', value: stats ? `${stats.winRate.toFixed(0)}%` : '—' },
-                { label: '常用', value: stats?.favChar ?? '—' },
               ].map((m, i) => (
                 <div key={i} style={{
                   background: 'var(--bg-input)', border: '1px solid var(--line-soft)',
@@ -287,7 +288,7 @@ export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
               <span>編輯名稱</span>
               <input
                 value={name}
-                placeholder={placeholder}
+                placeholder={me?.username ?? 'Player'}
                 maxLength={PLAYER_NAME_MAX}
                 onChange={(e) => setName(e.target.value)}
                 onBlur={commitName}
@@ -302,6 +303,18 @@ export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
                 }}
               />
             </div>
+
+            <button
+              type="button"
+              onClick={() => onLogout?.()}
+              style={{
+                marginTop: 4, padding: '5px 8px',
+                background: 'var(--bg-paper)',
+                border: '1px solid var(--line-soft)', color: 'var(--ink)',
+                fontFamily: 'var(--font-ui)', fontSize: 11, cursor: 'pointer',
+                letterSpacing: 0.5,
+              }}
+            >登出</button>
           </div>
         </div>
 
@@ -316,7 +329,7 @@ export default function MainMenu({ onStart, onOpenCharacters, onOpenHistory }) {
           marginRight: 'auto',
           width: '100%',
         }}>
-          {TEMPLATES.map((tpl) => (
+          {templates.map((tpl) => (
             <div
               key={tpl.id}
               onMouseEnter={() => setHoveredTpl(tpl.id)}

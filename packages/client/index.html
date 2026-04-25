@@ -99,8 +99,10 @@
       100% { opacity: 0; transform: translateY(-0.9px); }
     }
     @keyframes shieldBreath {
-      0%, 100% { opacity: 0.55; transform: scale(1); }
-      50% { opacity: 0.9; transform: scale(1.12); }
+      /* 只用 opacity 呼吸；不用 transform: scale，因為 SVG transform-origin 預設 0 0
+         會把以世界座標寫的 path 推離 player 中心（弧會飄到右下） */
+      0%, 100% { opacity: 0.7; }
+      50%      { opacity: 1.0; }
     }
     @keyframes speedBuffAura {
       0%, 100% { opacity: 0.5; transform: scale(1); }

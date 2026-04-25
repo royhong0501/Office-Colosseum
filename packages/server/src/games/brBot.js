@@ -178,12 +178,17 @@ export function decideBotInput(state, botId, now) {
 
     // 低血量行為
     if (me.hp < 40) {
-      input.shield = Math.random() < 0.6;
+      // 盾還能用（耐久 > 0、未在破盾鎖死期）才考慮舉盾
+      const canShield = (me.shieldHp ?? 0) > 0 && now >= (me.shieldBrokenUntil ?? 0);
+      if (canShield) input.shield = Math.random() < 0.6;
       if (now >= (me.dashCdUntil ?? 0) && Math.random() < 0.02) {
         input.dash = true;
         input.aimAngle = Math.atan2(-dy, -dx);
       }
     }
+
+    // 舉盾與射擊互斥（server simulation 也會擋，但 bot 自己也清乾淨避免分析誤導）
+    if (input.shield) input.attack = false;
 
     return input;
   } catch (err) {

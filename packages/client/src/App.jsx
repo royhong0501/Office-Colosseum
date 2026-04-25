@@ -9,50 +9,90 @@ import GameOver from './screens/GameOver.jsx';
 import BossKey from './screens/BossKey.jsx';
 import CharacterBrowser from './screens/CharacterBrowser.jsx';
 import MatchHistory from './screens/MatchHistory.jsx';
+import Login from './screens/Login.jsx';
+import AdminPanel from './screens/AdminPanel.jsx';
 import { useBossKey } from './hooks/useBossKey.js';
 import { useSocketStatus } from './hooks/useSocketStatus.js';
 import ConnectionBanner from './components/ConnectionBanner.jsx';
-import { getSocket } from './net/socket.js';
+import { getSocket, reconnectSocket, disconnectSocket } from './net/socket.js';
 import { MSG } from '@office-colosseum/shared';
+import {
+  isAuthed, isAdmin, refreshMe, getCurrentUser, logout as authLogout,
+} from './lib/auth.js';
 
 // 多遊戲平台 screen 流程：
-//   menu → modeSelect → [mapSelect (BR only)] → lobby → battle → gameover
-//   menu → characters / history (獨立頁)
-// Phase 0：mapSelect 未實作，BR 直接從 modeSelect → lobby，config 暫為空。
-// Phase 1 會在 modeSelect 與 lobby 之間插入 MapSelect。
+//   auth → menu → modeSelect → [mapSelect (BR only)] → lobby → battle → gameover
+//   menu → characters / history / admin (獨立頁)
 
 export default function App() {
   const hidden = useBossKey();
   const connStatus = useSocketStatus();
-  const [screen, setScreen] = useState('menu');
+  // 啟動先進 auth；refreshMe 完成後若有 token 才放行進 menu
+  const [screen, setScreen] = useState(isAuthed() ? 'menu' : 'auth');
+  const [user, setUser] = useState(getCurrentUser());
 
-  useEffect(() => { applyTheme(loadTheme()); }, []);
+  useEffect(() => {
+    applyTheme(loadTheme());
+  }, []);
+
+  // 啟動時校正 token；若被 revoke / 過期就回 auth
+  useEffect(() => {
+    if (!isAuthed()) return;
+    refreshMe().then((u) => {
+      if (u) {
+        setUser(u);
+        reconnectSocket();
+      } else {
+        setScreen('auth');
+      }
+    });
+  }, []);
+
+  // 全域監聽：socket handshake 失敗清掉 token 後 → 強制回 Login
+  useEffect(() => {
+    const onCleared = () => { setUser(null); setScreen('auth'); };
+    window.addEventListener('oc:auth-cleared', onCleared);
+    return () => window.removeEventListener('oc:auth-cleared', onCleared);
+  }, []);
 
   const [matchStart, setMatchStart] = useState(null);
   const [matchEnd, setMatchEnd] = useState(null);
   const [gameType, setGameType] = useState(null);
   const [config, setConfig] = useState({});
 
+  const handleLogout = async () => {
+    await authLogout();
+    disconnectSocket();
+    setUser(null);
+    setScreen('auth');
+  };
+
   let content = null;
-  if (screen === 'menu') {
+  if (screen === 'auth') {
+    content = <Login onLoggedIn={(u) => { setUser(u); setScreen('menu'); }} />;
+  } else if (screen === 'menu') {
     content = (
       <MainMenu
+        user={user}
         onStart={() => setScreen('modeSelect')}
         onOpenCharacters={() => setScreen('characters')}
         onOpenHistory={() => setScreen('history')}
+        onOpenAdmin={isAdmin() ? () => setScreen('admin') : null}
+        onLogout={handleLogout}
       />
     );
   } else if (screen === 'characters') {
     content = <CharacterBrowser onBack={() => setScreen('menu')} />;
   } else if (screen === 'history') {
     content = <MatchHistory onBack={() => setScreen('menu')} />;
+  } else if (screen === 'admin') {
+    content = <AdminPanel onBack={() => setScreen('menu')} />;
   } else if (screen === 'modeSelect') {
     content = (
       <ModeSelect
         onModeSelected={(id) => {
           setGameType(id);
           setConfig({});
-          // BR 先進地圖選擇；其他模式（未來）直接進 lobby
           if (id === 'battle-royale') setScreen('mapSelect');
           else setScreen('lobby');
         }}

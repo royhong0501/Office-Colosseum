@@ -1,26 +1,33 @@
 import { MAX_PLAYERS, MIN_PLAYERS, MSG, ALL_CHARACTERS, DEFAULT_GAME_TYPE, GAME_TYPES } from '@office-colosseum/shared';
 
+// Player 形狀（broadcast 給 client 的 LOBBY_STATE 也是這個 shape）：
+//   { id: socketId, userId, displayName, characterId, ready, isHost, isBot }
+// userId 對應 Postgres User.id（bot 為 null）。
+
 export class Lobby {
   constructor(io) {
     this.io = io;
-    this.players = new Map();  // socketId -> { id, name, characterId, ready, isHost, isBot }
+    this.players = new Map();  // socketId -> Player
     this.nextBotSeq = 1;
     this.gameType = DEFAULT_GAME_TYPE;
-    this.config = {};          // 每個 game 的專屬 config（BR 的 { mapId } 等）
+    this.config = {};
   }
-  join(socketId, name, uuid = null) {
+  // user 是來自 socket.data.user 的 { id, displayName }（測試會直接餵 fake）
+  join(socketId, user) {
+    const userId = user?.id ?? null;
+    const displayName = user?.displayName || 'Player';
     const prev = this.players.get(socketId);
     if (prev) {
-      // 重複 JOIN 是 idempotent：保留 characterId / ready / isHost，更新名字與 uuid
-      prev.name = name;
-      if (uuid) prev.uuid = uuid;
+      // idempotent：保留 characterId / ready / isHost，更新身分資訊
+      prev.userId = userId;
+      prev.displayName = displayName;
       this.broadcast();
       return { ok: true };
     }
     if (this.players.size >= MAX_PLAYERS) return { error: 'full' };
     const isHost = this.players.size === 0;
     this.players.set(socketId, {
-      id: socketId, name, uuid, characterId: null,
+      id: socketId, userId, displayName, characterId: null,
       ready: false, isHost, isBot: false,
     });
     this.broadcast();
@@ -29,14 +36,12 @@ export class Lobby {
   leave(socketId) {
     const wasHost = this.players.get(socketId)?.isHost;
     this.players.delete(socketId);
-    // 如果沒有真人剩下，清掉所有 bot（空 lobby 保留 bot 無意義）
     const hasRealPlayer = [...this.players.values()].some(p => !p.isBot);
     if (!hasRealPlayer) {
       for (const [id, p] of this.players) {
         if (p.isBot) this.players.delete(id);
       }
     } else if (wasHost) {
-      // 把 host 權遞給第一個真人（不是 bot）
       const nextHost = [...this.players.values()].find(p => !p.isBot);
       if (nextHost) nextHost.isHost = true;
     }
@@ -56,7 +61,6 @@ export class Lobby {
     if (!GAME_TYPES.includes(gameType)) return { error: 'unknown_game_type' };
     this.gameType = gameType;
     this.config = config ?? {};
-    // 切換遊戲後全員要重新 ready（避免上一款的 ready 狀態帶過去誤觸發 START）
     for (const p of this.players.values()) {
       if (!p.isBot) p.ready = false;
     }
@@ -76,8 +80,8 @@ export class Lobby {
     const character = ALL_CHARACTERS[Math.floor(Math.random() * ALL_CHARACTERS.length)];
     this.players.set(id, {
       id,
-      name: `Bot-${seq}`,
-      uuid: null,
+      userId: null,
+      displayName: `Bot-${seq}`,
       characterId: character.id,
       ready: true,
       isHost: false,
@@ -101,7 +105,6 @@ export class Lobby {
         this.players.delete(id);
       } else {
         p.ready = false;
-        // keep characterId so players don't have to re-pick
       }
     }
     this.nextBotSeq = 1;

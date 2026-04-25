@@ -21,8 +21,19 @@ export const BULLET_SPEED = 16;          // cells/sec
 export const BULLET_MAX_DIST = 14;       // cells
 export const PROJECTILE_RADIUS = 0.15;
 
-// 舉盾
-export const SHIELD_REDUCTION = 0.7;     // 傷害 × (1 - 0.7) = 30%
+// 舉盾（弧形 + 耐久版）
+//   - 弧寬：正前方 ±SHIELD_ARC_HALF_RAD（90° 扇形）；中心線 = aimAngle
+//   - 弧內：100% 擋下子彈、消耗對應盾耐久
+//   - 弧外：完全不擋（按原 BULLET_DMG 扣 HP）
+//   - 盾耐久歸 0 → 鎖死 5s 不能舉，5s 到一次回滿
+//   - 舉盾時不能射擊（LMB 互斥）
+export const SHIELD_MAX_HP = 100;
+export const SHIELD_ARC_DEG = 90;
+export const SHIELD_ARC_HALF_RAD = (SHIELD_ARC_DEG / 2) * Math.PI / 180;
+export const SHIELD_BREAK_LOCK_MS = 5000;
+// @deprecated v1 全方位減傷模型已淘汰（弧形版改為弧內 100% 擋、弧外 0% 擋）。
+// 保留 export 以免外部引用爆炸；新程式不應再讀這個值。
+export const SHIELD_REDUCTION = 0.7;
 
 // 衝刺
 export const DASH_CELLS = 2;

@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { CAT_BREEDS, DOG_BREEDS, ALL_CHARACTERS, MSG, MIN_PLAYERS, MAX_PLAYERS } from '@office-colosseum/shared';
 import { getMapById } from '@office-colosseum/shared/src/games/br/index.js';
 import { getSocket } from '../net/socket.js';
-import { getJoinName, getPlayerUuid } from '../lib/playerIdentity.js';
 import { CharacterSpriteImg } from '../components/CharacterSprite.jsx';
 import SheetWindow from '../components/SheetWindow.jsx';
 
@@ -85,7 +84,7 @@ function PickerSection({ title, formula, characters, me, otherPickers, onPick })
               </div>
               {otherPicker && (
                 <div style={{ fontSize: 9, color: 'var(--accent-danger)' }}>
-                  {otherPicker.name} 已選
+                  {otherPicker.displayName} 已選
                 </div>
               )}
             </div>
@@ -108,15 +107,17 @@ export default function Lobby({ gameType, config, onMatchStart, onBack, gameName
 
   useEffect(() => {
     const doJoin = () => {
-      socket.emit(MSG.JOIN, { name: getJoinName(), uuid: getPlayerUuid() });
-      // Host 選定的 gameType 透過 SET_GAME_TYPE 通知 server；非 host 觸發時 server
-      // 會回 not_host ERROR，但不影響流程（LOBBY_STATE 會把正確 gameType 帶下來）。
+      // 身分由 socket handshake 的 JWT 帶過去，不再需要 client 自己 emit name/uuid
+      socket.emit(MSG.JOIN);
       if (gameType) {
         socket.emit(MSG.SET_GAME_TYPE, { gameType, config: config ?? {} });
       }
     };
     if (socket.connected) doJoin();
-    else socket.once('connect', doJoin);
+    else {
+      socket.connect();
+      socket.once('connect', doJoin);
+    }
 
     const onLobbyState = (data) => setPlayers(data.players ?? []);
     const onMatchStartEvt = (payload) => onMatchStart(payload);
@@ -157,9 +158,9 @@ export default function Lobby({ gameType, config, onMatchStart, onBack, gameName
       return `還差 ${MIN_PLAYERS - players.length} 人（最少 ${MIN_PLAYERS} 人）`;
     }
     const noChar = players.find((p) => !p.characterId);
-    if (noChar) return `${noChar.name} 尚未選角色`;
+    if (noChar) return `${noChar.displayName} 尚未選角色`;
     const notReady = players.find((p) => !p.ready);
-    if (notReady) return `${notReady.name} 尚未按準備`;
+    if (notReady) return `${notReady.displayName} 尚未按準備`;
     return null;
   })();
 
@@ -298,7 +299,7 @@ export default function Lobby({ gameType, config, onMatchStart, onBack, gameName
                       {p.isBot && (
                         <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', background: 'var(--bg-chrome-dark)', color: 'var(--bg-paper)', padding: '0 4px' }}>BOT</span>
                       )}
-                      <span style={{ fontWeight: isMe ? 700 : 400 }}>{p.name}</span>
+                      <span style={{ fontWeight: isMe ? 700 : 400 }}>{p.displayName}</span>
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--ink-muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
                       {ch ? `${ch.name} · ${ch.type === 'cat' ? '貓方' : '狗方'}` : '#N/A'}

@@ -91,6 +91,33 @@ test('低 HP 傾向舉盾（多次取樣）', () => {
   assert.ok(shieldCount >= 15 && shieldCount <= 45, `shield 觸發 ${shieldCount}/50 不在合理區間`);
 });
 
+test('破盾鎖死期間 bot 不舉盾（即使 HP<40）', () => {
+  const s = baseState();
+  const me = s.players.bot, en = s.players.enemy;
+  me.hp = 30;
+  me.shieldHp = 0;
+  me.shieldBrokenUntil = 999_999_999;
+  me.x = 2.5; me.y = 1.5;
+  en.x = 5.5; en.y = 1.5;
+  for (let i = 0; i < 20; i++) {
+    const out = decideBotInput(s, 'bot', 100);
+    assert.equal(out.shield, false, '破盾鎖死期間 shield 必為 false');
+  }
+});
+
+test('bot shield=true 時 attack 必為 false（互斥）', () => {
+  const s = baseState();
+  const me = s.players.bot, en = s.players.enemy;
+  me.hp = 30;
+  me.x = 2.5; me.y = 1.5;
+  en.x = 5.5; en.y = 1.5;
+  // 取 50 次樣本，凡 shield 觸發的 tick attack 都該為 false
+  for (let i = 0; i < 50; i++) {
+    const out = decideBotInput(s, 'bot', 100);
+    if (out.shield) assert.equal(out.attack, false, 'shield+attack 不應同時 true');
+  }
+});
+
 test('同位置不炸（fallback idle）', () => {
   const s = baseState();
   const me = s.players.bot, en = s.players.enemy;

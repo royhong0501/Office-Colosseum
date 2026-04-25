@@ -4,3 +4,10 @@ dist/
 *.log
 .vite/
 docs
+
+# Server data / Prisma
+packages/server/data/
+packages/server/.env
+.env
+.env.*
+!.env.example

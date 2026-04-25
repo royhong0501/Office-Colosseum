@@ -1,12 +1,43 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=colosseum
+      - POSTGRES_PASSWORD=colosseum
+      - POSTGRES_DB=colosseum
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U colosseum -d colosseum"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   server:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    command: npm run dev:server
+    command: sh -c "npx --workspace @office-colosseum/server prisma migrate deploy && npm run dev:server"
     environment:
       - PORT=3000
       - NODE_ENV=development
+      - DATABASE_URL=postgresql://colosseum:colosseum@postgres:5432/colosseum
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-dev-only-secret-change-me-32chars-min}
+      - ADMIN_INITIAL_USERNAME=${ADMIN_INITIAL_USERNAME:-admin}
+      - ADMIN_INITIAL_PASSWORD=${ADMIN_INITIAL_PASSWORD:-admin}
     ports:
       - "3000:3000"
     volumes:
@@ -16,6 +47,11 @@ services:
       - /app/packages/server/node_modules
       - /app/packages/client/node_modules
     working_dir: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   client:
     build:
@@ -35,3 +71,6 @@ services:
     depends_on:
       - server
     working_dir: /app
+
+volumes:
+  pgdata:

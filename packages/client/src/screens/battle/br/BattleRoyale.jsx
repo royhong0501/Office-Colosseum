@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getSocket } from '../../../net/socket.js';
 import { MSG, TICK_MS, getCharacterById } from '@office-colosseum/shared';
+import { ARENA_COLS, ARENA_ROWS, BULLET_DMG } from '@office-colosseum/shared/src/games/br/constants.js';
 import SheetWindow from '../../../components/SheetWindow.jsx';
 import ArenaBR from './ArenaBR.jsx';
 import BattleHudBR from './BattleHudBR.jsx';
@@ -143,6 +144,25 @@ export default function BattleRoyale({ initialState, config, onEnd }) {
         case 'shield_off':
           // 不 spam log
           break;
+        case 'shield_block': {
+          if (e.at) addFloater(e.at.x, e.at.y - 0.3, 'BLOCK', 'var(--accent-link)');
+          const sName = getCharacterById(players[e.shooterId]?.characterId)?.name ?? e.shooterId?.slice(0, 4);
+          const dName = getCharacterById(players[e.defenderId]?.characterId)?.name ?? e.defenderId?.slice(0, 4);
+          pushLog(`=BLOCK("${sName}"→"${dName}", -${BULLET_DMG} 盾)`);
+          break;
+        }
+        case 'shield_break': {
+          markHurt(e.playerId);
+          if (e.at) addFloater(e.at.x, e.at.y - 0.4, 'SHIELD BROKEN!', 'var(--accent-danger)');
+          const name = getCharacterById(players[e.playerId]?.characterId)?.name ?? e.playerId?.slice(0, 4);
+          pushLog(`=SHIELD_BREAK("${name}")`);
+          break;
+        }
+        case 'shield_recovered': {
+          const name = getCharacterById(players[e.playerId]?.characterId)?.name ?? e.playerId?.slice(0, 4);
+          pushLog(`=SHIELD_OK("${name}")`);
+          break;
+        }
         case 'poison_wave': {
           pushLog(`=SPREAD(wave=${e.waveCount}, cells=${e.newCells?.length ?? 0})`);
           setPoisonWaveBanner({ id: Date.now(), wave: e.waveCount });
@@ -192,8 +212,8 @@ export default function BattleRoyale({ initialState, config, onEnd }) {
                 key={f.id}
                 style={{
                   position: 'absolute',
-                  left: `${(f.x / 20) * 100}%`,
-                  top: `${(f.y / 9) * 100}%`,
+                  left: `${(f.x / ARENA_COLS) * 100}%`,
+                  top: `${(f.y / ARENA_ROWS) * 100}%`,
                   transform: 'translate(-50%, -50%)',
                   fontFamily: 'var(--font-mono)',
                   fontSize: 14,

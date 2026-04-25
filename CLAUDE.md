@@ -24,36 +24,52 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 所有指令都從 repo 根目錄執行；npm workspaces 會自動解析三個 package 的相依。
 
-### 本機開發（兩個終端機，無 Docker）
+### 前置（DB + Redis）
+
+從這版開始 server 需要 **Postgres**（帳號 / 戰績）與 **Redis**（rate limit / JWT blocklist / presence / leaderboard cache）。最簡單的方式是用 docker compose 一條起：
+
+```bash
+cp .env.example .env       # 編輯 JWT_SECRET / ADMIN_INITIAL_PASSWORD 後再執行下列
+docker compose up -d postgres redis
+npm run db:migrate --workspace @office-colosseum/server   # prisma migrate dev
+npm run db:seed    --workspace @office-colosseum/server   # 建第一個 ADMIN
+```
+
+`prisma migrate dev` 在 schema 改變時都要重跑（會自動產生 migration）。`db:seed` 只在 `User` 表為空時建 admin，之後跑是 no-op。
+
+### 本機開發（兩個終端機）
 
 ```bash
 npm install
 
 # Terminal 1 — server 用 node --watch 熱重載，監聽 :3000
+# 需要先 export 或在 .env 把 DATABASE_URL/REDIS_URL/JWT_SECRET/ADMIN_INITIAL_* 設好
 npm run dev:server
 
 # Terminal 2 — Vite dev server 在 :5173，會把 /socket.io 代理到 :3000
 npm run dev:client
 ```
 
-開啟 `http://localhost:5173`。
+開啟 `http://localhost:5173`，第一次進站會看到 Login 頁；用 ADMIN 帳密登入後可在主選單進「使用者管理」建一般玩家帳號。
 
 ### Docker / 正式出 build
-
-（同前版；多遊戲重構不影響部署流程）
 
 ```bash
 npm run build      # vite build → packages/client/dist/
 npm start          # Express 從 dist/ 出靜態檔 + socket.io，監聽 :3000
+docker compose -f docker-compose.prod.yml up -d  # 含 postgres + redis + app 一起起
 ```
+
+`docker-compose.prod.yml` 的 `app` service 啟動時會自動跑 `prisma migrate deploy` + `db:seed`。
 
 ### 測試
 
 ```bash
-npm test                                                   # 所有 workspace 跑一遍
+npm test                                                   # 所有 workspace 跑一遍（不需 DB/Redis；lobby/sim 等純單元測試）
 npm test --workspace @office-colosseum/shared              # shared 單元測試
-npm test --workspace @office-colosseum/server              # server（含 brBot、lobby、records、rooms）
-npm run smoke --workspace @office-colosseum/server         # 2-client 登入 lobby 的整合 smoke test
+npm test --workspace @office-colosseum/server              # server（含 brBot、lobby、rooms）
+# smoke 需先把 docker compose up 起來、env 都設好；admin 帳號登入後建測試使用者再連 socket
+npm run smoke --workspace @office-colosseum/server
 ```
 
 所有 test 檔用原生 `node:test` + `node:assert/strict`，無任何測試 framework。
@@ -90,13 +106,30 @@ socketHandlers  →  Lobby (共用) + Match (gameType 參數化)
 ### Client 流程 + 戰鬥畫面 dispatcher
 
 ```
-screen: menu → modeSelect → [mapSelect] → lobby → battle → gameover
-                          (BR only)
-        menu → characters / history（獨立頁）
+screen: auth → menu → modeSelect → [mapSelect] → lobby → battle → gameover
+                                  (BR only)
+        menu → characters / history / admin（獨立頁；admin 只 ADMIN role 可見）
 ```
 
+- 沒有 token / token 過期 / 帳號被停用 → App 強制回 `auth`。
 - `NetworkedBattle.jsx` 是戰鬥層 dispatcher，依 `gameType` 路由到 `battle/<id>/BattleXxx.jsx`。
-- 全部非戰鬥畫面（Lobby / ModeSelect / MapSelect / MainMenu / GameOver / CharacterBrowser / MatchHistory）都走同一個 `SheetWindow` 外殼。
+- 全部非戰鬥畫面（Login / Lobby / ModeSelect / MapSelect / MainMenu / GameOver / CharacterBrowser / MatchHistory / AdminPanel）都走同一個 `SheetWindow` 外殼。
+
+### 帳號 / DB / Redis 流向
+
+```
+client ──HTTP /auth/login──► server ──bcrypt verify + JWT sign──► Redis trackJti
+client ──HTTP /admin/users──► server (requireAdmin)             ──► Postgres (User table via Prisma)
+client ──websocket(auth.token)──► server io.use(verifyAndLoad) ──► Postgres User check + Redis blocklist
+                                                                ──► socket.data.user 注入後才放行
+match end ──► matchService.recordMatch ──► Postgres (Match + MatchParticipant)
+                                       ──► Redis cache:leaderboard:* DEL
+GET_RECORDS ──► matchService.getSnapshot ──► Postgres
+```
+
+- 身分一律以 `socket.data.user` 為準；client 不再傳 `name/uuid`。
+- 戰績完全在 Postgres；舊 `records.json` 啟動時自動 archive 為 `.archived-{ts}` 不再讀取。
+- Redis 是「短壽狀態」：rate limit window、JWT blocklist、線上玩家 hash、leaderboard cache。停掉 Redis 不會掉資料，只是登入 brute-force 防禦失效、token 無法即時 revoke、線上人數失效。
 
 ---
 
@@ -119,7 +152,7 @@ screen: menu → modeSelect → [mapSelect] → lobby → battle → gameover
 
 | 檔案 | 內容 |
 |---|---|
-| `constants.js` | `ARENA_COLS=20, ARENA_ROWS=9`, `MAX_HP=100`, `MOVE_SPEED=5.2`（cells/s）、`SHOOT_CD_MS=280`, `BULLET_DMG=14`, `BULLET_SPEED=16`, `BULLET_MAX_DIST=14`, `SHIELD_REDUCTION=0.7`, `DASH_CELLS=2, DASH_CD_MS=6000, DASH_INVULN_MS=200`, `POISON_DPS=5, POISON_SEVERE_MULT=2, POISON_START_MS=30000, POISON_WAVE_INTERVAL_MS=15000` |
+| `constants.js` | `ARENA_COLS=28, ARENA_ROWS=14`, `MAX_HP=100`, `MOVE_SPEED=5.2`（cells/s, 舉盾時 `MOVE_SPEED_SHIELD=3.1`）、`SHOOT_CD_MS=280`, `BULLET_DMG=14`, `BULLET_SPEED=16`, `BULLET_MAX_DIST=14`、舉盾：`SHIELD_MAX_HP=100, SHIELD_ARC_DEG=90`（前 ±45°）、`SHIELD_BREAK_LOCK_MS=5000`（破盾鎖死 5s 後一次回滿）、`SHIELD_REDUCTION` deprecated（弧內 100% 擋、弧外 0%）；`DASH_CELLS=2, DASH_CD_MS=6000, DASH_INVULN_MS=200`, `POISON_DPS=5, POISON_SEVERE_MULT=2, POISON_START_MS=30000, POISON_WAVE_INTERVAL_MS=15000` |
 | `maps.js` | 5 張地圖：年度預算報表 / 甘特圖 / 樞紐分析 / 股價 K 線 / 銷售熱區。`covers` 為 `[col, row, w, h]` 矩形列表；`expandCovers() → Set<"c,r">` 給碰撞用；`autoSpawns(map)` 四角+中點自動生出 spawn 點（避 cover）；`pickMap(idxOrId)`、`getMapById(id)` |
 | `simulation.js` | `createInitialState / applyInput / resolveTick / aliveCount / getWinner / buildSnapshotPayload / buildMatchStartPayload` |
 
@@ -145,7 +178,9 @@ screen: menu → modeSelect → [mapSelect] → lobby → battle → gameover
       alive, paused,
       moveX, moveY,                 // 正規化後的移動意圖（resolveTick 才真的位移）
       aimAngle, facing,             // radians
-      shielding,                    // held bool
+      shielding,                    // held bool（input.shield + canShield 過濾後）
+      shieldHp, shieldMaxHp,        // 弧形盾耐久（預設 100）
+      shieldBrokenUntil,            // > now 表 5s 鎖死期；0 表沒鎖死
       shootCdUntil, dashCdUntil,    // absolute ms timestamps
       invulnUntil,                  // absolute ms timestamp
       lastPoisonTickAt, lastHurtAt,
@@ -174,7 +209,8 @@ screen: menu → modeSelect → [mapSelect] → lobby → battle → gameover
 - `moveX/moveY`：任意向量（WASD / 方向鍵），server 端 `Math.hypot` 正規化
 - `aimAngle`：弧度，由 client 依滑鼠世界座標算出，每 tick 送；決定 facing 與射擊 / dash 方向
 - `attack`：left-click held bool，server 以 `SHOOT_CD_MS` 節流
-- `shield`：right-click held bool，直接寫入 `player.shielding`（放開立即卸盾）
+- `shield`：right-click held bool。server 端會檢查 `shieldHp > 0 && now >= shieldBrokenUntil` 才真的把 `player.shielding` 設為 true（破盾鎖死期間吃下去也不舉）。**舉盾與射擊互斥**：`p.shielding === true` 時 `input.attack` 不發子彈。
+- 舉盾命中減傷只發生在「子彈來向相對 `p.facing` 的弧度差 ≤ `SHIELD_ARC_HALF_RAD`」時，弧內 100% 擋下並扣 `min(shieldHp, BULLET_DMG)` 盾耐久；扣到 0 觸發 `shield_break` + 5s 鎖死後一次回滿（`shield_recovered`）。「最後一擊」（盾血 < BULLET_DMG）仍能完整擋下，不穿透到 HP。
 - `dash`：shift-press one-shot bool，server 檢查 `dashCdUntil` 決定是否生效；client 讀完要自行清掉 one-shot flag
 
 ### BR Event types（server → client SNAPSHOT payload）
@@ -185,7 +221,10 @@ screen: menu → modeSelect → [mapSelect] → lobby → battle → gameover
 - `projectile_hit` — `{ id, targetId|null, at }`（targetId=null 代表撞 cover）
 - `projectile_expire` — `{ id }`
 - `dash_move` — `{ playerId, from:{x,y}, to:{x,y} }`
-- `shield_on` — `{ playerId, at }` / `shield_off` — `{ playerId }`
+- `shield_on` — `{ playerId, at }` / `shield_off` — `{ playerId }`（按鍵 on/off；不一定真的有盾，被破時 server 會強制 off）
+- `shield_block` — `{ shooterId, defenderId, at:{x,y}, shieldHp }`（弧內擋下子彈，client 飄 BLOCK）
+- `shield_break` — `{ playerId, at:{x,y} }`（盾耐久歸零，client 紅閃 SHIELD BROKEN!）
+- `shield_recovered` — `{ playerId }`（5s 到，盾自動回滿）
 - `poison_wave` — `{ waveCount, newCells: [[c,r]...] }`
 
 ### `shared/games/items/` — 道具戰
@@ -281,18 +320,30 @@ screen: menu → modeSelect → [mapSelect] → lobby → battle → gameover
 
 ## `packages/server/` — 權威遊戲伺服器
 
-Express + socket.io，`src/index.js` 掛靜態 `../client/dist` 和 socket server，共用 `:3000`。同時初始化 `records.init(RECORDS_PATH || 'data/records.json')`。
+Express + socket.io，`src/index.js` 掛靜態 `../client/dist`、auth/admin routes、socket server，共用 `:3000`。啟動時：
+
+1. 偵測舊 `records.json` 存在就 archive 改名為 `records.json.archived-{ts}`（不再讀進來，新戰績全寫 Postgres）。
+2. `getPrisma().$connect()` 暖機 DB 連線。
+3. 掛 `/auth`、`/admin` Express routes（順序：parsers → auth → admin → static → SPA fallback）。SPA fallback regex 排除 `/auth`、`/admin`、`/health`、`/socket.io` 路徑。
 
 ### 核心模組
 
-- **`lobby.js`**（`Lobby` 類別）：共用 lobby。管 slot、角色選擇、ready flag、bot 增減。多了 `gameType` 與 `config` 欄位 + `setGameType(host, gameType, config)`。切換 gameType 時會把所有真人的 `ready` 歸 false（避免上一款的 ready 帶過來誤觸發 START）。
-- **`match.js`**（`Match` 通用 dispatcher）：建構子 `new Match(io, players, gameType, config, onEnd)`。透過 `loadGame(gameType)` 拿到 `{ sim, bot }`，tick loop 呼叫 `sim.*` 與 `bot.decideBotInput`。保留 event slice 機制（tick 頭記錄 `eventsStartIdx`、結尾 `slice`）。
+- **`db/prisma.js` / `db/redis.js`**：lazy singleton clients。`getPrisma()` / `getRedis()`。測試環境若無 DB / Redis，呼叫端應自行 mock 或 skip。
+- **`auth/jwt.js`**：`signToken(user)` / `verifyToken(token)` / `buildJti()`。payload `{sub, jti, role, username, displayName, exp}`，預設 24h；`JWT_SECRET` 必須 ≥ 16 字。
+- **`auth/middleware.js`**：`verifyAndLoad(token)`（共用底層）+ Express `requireAuth` / `requireAdmin`。token 從 `Authorization: Bearer` 或 `Cookie: oc_token=` 取。
+- **`auth/routes.js`**：`POST /auth/login`（過 IP+username 兩條 rate limit）、`POST /auth/logout`（jti 寫 blocklist）、`GET /auth/me`、`PATCH /auth/me`（改 displayName）。
+- **`admin/routes.js`**：`POST/GET /admin/users`、`PATCH /admin/users/:id`（停用→自動 revoke 該 user 所有 active jti）、`POST /admin/users/:id/reset-password`（同上）、`GET /admin/presence`。全程 `requireAdmin`。
+- **`services/matchService.js`**：取代舊 `records.js`。`recordMatch(...)` 寫 `Match` + N 個 `MatchParticipant`（transaction），寫完 `invalidateLeaderboard()`；`getSnapshot()` 給 client `GET_RECORDS` 用，回最近 N 場 + top 200 聚合。
+- **`services/blocklist.js`**：`trackJti(userId, jti, ttl)` 加進 `user:<id>:jtis` set；`blockJti(jti, ttl)` 寫 `blk:jti:<jti>`；`isBlocked(jti)` 查；`revokeAllForUser(userId)` 把該使用者的所有 jti 批量寫進 blocklist（停用 / 改密碼時用）。
+- **`services/rateLimiter.js`**：`consume({ key, limit, windowSec })` sliding-window；超過 throw `RateLimitError(retryAfterSec)`。
+- **`services/presenceService.js`**：`hsetOnline(userId, socketId)` / `hdelOnline(userId)` / `listOnline()`。
+- **`services/leaderboardCache.js`**：`get(gameType, fetcher)` Redis 30s TTL；`invalidateLeaderboard()` DEL `cache:leaderboard:*`。
+- **`lobby.js`**（`Lobby` 類別）：共用 lobby。Player 形狀 `{ id: socketId, userId, displayName, characterId, ready, isHost, isBot }`。`join(socketId, user)` 接 `{ id, displayName }`。切 gameType 把所有真人 ready 歸 false。
+- **`match.js`**（`Match` 通用 dispatcher）：建構子 `new Match(io, players, gameType, config, onEnd)`。tick loop 呼叫 `sim.*` 與 `bot.decideBotInput`。`end()` async 呼叫 `matchService.recordMatch(...)`，失敗 swallow（`.catch(console.warn)`）。
 - **`games/index.js`**：`GAMES` registry（gameType → `{ sim, bot }`），`loadGame(gameType)`。
-- **`games/brBot.js`**：BR 的 `decideBotInput(state, botId, now)`。策略：死 → idle；腳下毒圈 → 逃往中心；視線內距離 ≤ `BULLET_MAX_DIST` → aim + attack；被 cover 擋視線 → 靠近不射；HP<40 → 60% 舉盾 + 2% dash 退敵。
-- **`games/itemsBot.js`**：Items 的 `decideBotInput`。策略：低 HP 或凍結 → 施 `undo`（若非 silenced）；視線內敵人 → aim + attack + 視距離繞切線；距離 3–7 + MP 足 → 放 trap（優先 `freeze`，其次 `readonly / merge / validate`）。
-- **`games/territoryBot.js`**：Territory 的 `decideBotInput`。策略：朝「離自己最近、偏邊緣、未被自己佔領」的格子走；分數 = 曼哈頓距離 + 2×邊緣距離。簡單 deterministic，容易圍出邊緣大區。
-- **`records.js`**：in-memory + JSON 檔持久化（atomic rename + 1s debounce）。`recordMatch({ gameType, config, startedAt, endedAt, participants })` 新增 `gameType` 與 `config` 欄位。`MIN_REAL_PLAYERS=2` 與 `MAX_MATCHES=10` 不變。
-- **`socketHandlers.js`**：把 socket event 綁到 Lobby / Match / Records 方法。`SET_GAME_TYPE` handler 已加。`START` 會帶 `lobby.gameType` + `lobby.config` 到 Match。
+- **`games/brBot.js` / `itemsBot.js` / `territoryBot.js`**：各遊戲的 `decideBotInput(state, botId, now)`。策略未變（BR：腳下毒圈→逃中心 / 視線內 ≤ BULLET_MAX_DIST→射 / HP<40→舉盾 dash；Items：低 HP→undo / 視線內→射 + 繞切線 / 距離 3–7→放 trap；Territory：朝最近未佔領+偏邊緣的格走）。
+- **`socketHandlers.js`**：開頭 `io.use(authMiddleware)` 在 handshake 驗 JWT、查 blocklist、查 user.disabled，把 `socket.data.user` 寫進去；`MSG.JOIN` 不再吃 client 的 name/uuid，全部從 socket.data 取。connection 時 `hsetOnline`，disconnect 時 `hdelOnline`。
+- **`prisma/schema.prisma`**：`User` (cuid + username unique + bcrypt passwordHash + role enum + disabled + createdById self-relation + lastLoginAt)、`Match`、`MatchParticipant`（userId 可為 null = bot）。`prisma migrate dev --name <name>` 動 schema；`prisma migrate deploy` 給 prod；`db:seed` 在表空時建 `ADMIN_INITIAL_USERNAME/PASSWORD`。
 
 ### 未使用但保留（第二階段多房間預留）
 
@@ -307,14 +358,21 @@ Express + socket.io，`src/index.js` 掛靜態 `../client/dist` 和 socket serve
 ### Screen 流程（`App.jsx`）
 
 ```
-menu → modeSelect → [mapSelect (BR only)] → lobby → battle → gameover
-menu → characters (CharacterBrowser)
-menu → history (MatchHistory)
+auth → menu → modeSelect → [mapSelect (BR only)] → lobby → battle → gameover
+       menu → characters (CharacterBrowser)
+       menu → history (MatchHistory)
+       menu → admin (AdminPanel，僅 ADMIN role)
 ```
+
+`App.jsx` 啟動先 `refreshMe()` 校正 token；若 token 不存在或被 revoke 就回 `auth`。`window` 監聽 `oc:auth-cleared` 事件強制踢回 Login。
 
 ### 重要元件
 
-- **`net/socket.js`** — `getSocket()` singleton（autoConnect、同源）
+- **`lib/auth.js`** — token / 使用者快取（`oc.token` / `oc.user` in localStorage）+ `login` / `logout` / `fetchAuthed` / `refreshMe` / `updateDisplayName`
+- **`lib/playerIdentity.js`** — 已退役為 auth.js 的薄封裝。`getPlayerUuid()` → 當前 `user.id`、`getStoredPlayerName()` → `displayName`、`setPlayerName()` → 透過 `PATCH /auth/me`
+- **`net/socket.js`** — `getSocket()` singleton（`autoConnect: false`，handshake 帶 `auth: { token }`）+ `reconnectSocket()` / `disconnectSocket()`。`connect_error: 'unauthorized:*'` 會清 token 並 dispatch `oc:auth-cleared`
+- **`screens/Login.jsx`** — username + password 表單，POST `/auth/login`；錯誤碼處理（401 invalid_credentials / 423 rate_limited）
+- **`screens/AdminPanel.jsx`** — 列表 / 新增 / 停用 / 重設密碼。停用會踢掉該帳號所有現有 token
 - **`components/SheetWindow.jsx`** — 7 層試算表外殼（TitleBar / MenuBar / Toolbar / FormulaBar / 內容 / TabBar / StatusBar）。`formula` 可接 JSX、`tabs` 接 `[{id,label}]`
 - **`components/CharacterSprite.jsx`** — `CharacterSpriteSvg`（戰鬥畫面用，世界座標 1×1 unit，含 pixelBob + hurt flash + facing 水平翻轉）和 `CharacterSpriteImg`（HTML 版）
 - **`screens/MainMenu.jsx`** — 歡迎頁 + Player Card（勝率 / 場次）+ 最近檔案 + 三張 template 卡進不同子頁
@@ -332,9 +390,9 @@ menu → history (MatchHistory)
 - **`screens/battle/territory/useInputTerritory.js`** — 純 WASD，無滑鼠、無技能
 - **`screens/battle/territory/BattleHudTerritory.jsx`** — 隊伍分數比例條 + 分色卡 + 倒數 + 隊伍名單
 - **`screens/battle/br/BattleRoyale.jsx`** — BR 主戰鬥畫面，訂閱 SNAPSHOT、處理 events 進 log + 飄字 + hurt flash + 毒圈 banner
-- **`screens/battle/br/ArenaBR.jsx`** — SVG viewBox `0 0 20 9`，靜態層（grid + covers）+ 動態層（poison cells + players + bullets）。滑鼠 aim 透過 `arenaRef` + `xMidYMid meet` letterbox 對齊
+- **`screens/battle/br/ArenaBR.jsx`** — SVG viewBox `0 0 28 14`（依 `ARENA_COLS / ARENA_ROWS` 動態組），靜態層（grid + covers）+ 動態層（poison cells + players + bullets）。滑鼠 aim 透過 `arenaRef` + `xMidYMid meet` letterbox 對齊
 - **`screens/battle/br/useInputBR.js`** — WASD + 方向鍵 + 左鍵 held + 右鍵 held（shield）+ Shift one-shot（dash）
-- **`screens/battle/br/BattleHudBR.jsx`** — HP bar / dash CD / shield icon / 毒圈下一波倒數 / 全員名單 / 操作提示
+- **`screens/battle/br/BattleHudBR.jsx`** — HP bar / dash CD / shield 耐久條（破盾期間顯示 BROKEN + 5s 倒數）/ 毒圈下一波倒數 / 全員名單 / 操作提示
 - **`styles/game-ui.css`** — 模式卡 / 按鈕 / md-kv 等共用類別（由 main.jsx import）
 - **`index.html` 的 inline `<style>`** — 主題 CSS 變數（warm/green/blue）+ 關鍵 keyframes（`pixelBob`、`floatUp`、`hurtFlash`、`shieldBreath`、`sheetStripesSlide`）
 
@@ -350,7 +408,7 @@ menu → history (MatchHistory)
 
 | 方向 | Event (`MSG.*`) | Payload | 備註 |
 |---|---|---|---|
-| C→S | `JOIN` | `{ name, uuid }` | uuid 由 client `playerIdentity.js` 提供 |
+| C→S | `JOIN` | `{}` | 身分由 socket handshake 帶的 JWT 決定（`socket.data.user`）；client 不再傳 name/uuid |
 | C→S | `PICK` | `{ characterId }` | |
 | C→S | `READY` | `{ ready }` | |
 | C→S | `SET_GAME_TYPE` | `{ gameType, config }` | host only；切換遊戲時重置所有 ready |
@@ -360,11 +418,11 @@ menu → history (MatchHistory)
 | C→S | `LEAVE` | `{}` | |
 | C→S | `ADD_BOT` / `REMOVE_BOT` | `{}` / `{ botId }` | 僅 host |
 | C→S | `GET_RECORDS` | `{}` | 拉全站戰績 snapshot |
-| S→C | `LOBBY_STATE` | `{ players, gameType, config }` | |
+| S→C | `LOBBY_STATE` | `{ players, gameType, config }` | players[i] 形狀 `{ id: socketId, userId, displayName, characterId, ready, isHost, isBot }` |
 | S→C | `MATCH_START` | `{ gameType, config, state }` | BR 的 state 已把 Set 轉成 array（`poison.infected` 等） |
 | S→C | `SNAPSHOT` | 依 gameType 不同 | BR：`{tick, phase, players, bullets, poison, events}` |
 | S→C | `MATCH_END` | `{ winnerId, summary }` | summary 是每人的 `{dmgDealt, dmgTaken, survivedTicks}` |
-| S→C | `RECORDS` | `{ meta, players, matches }` | |
+| S→C | `RECORDS` | `{ meta, players, matches }` | players 是 array（`{id, username, displayName, matches, wins, dmgDealt, dmgTaken, survivedTicks}`），不再是 keyed by uuid 的 map；matches 由 matchService 即時從 DB 拉，沒有 10 場上限 |
 | S→C | `ERROR` | `{ code, msg }` | |
 
 ---
@@ -382,13 +440,17 @@ menu → history (MatchHistory)
 
 ### 容易踩的坑
 
-- **Socket connect race**：`io({ autoConnect: true })` 同步回傳 socket，但 `socket.id` 要等 `'connect'` event 才有值。mount 時 emit 必須 `if (socket.connected) ... else socket.once('connect', ...)`。
-- **BR 座標 corner-origin**：viewBox `0 0 20 9`，x ∈ [0, 20], y ∈ [0, 9]。跟舊版 center-origin 不同。
+- **Socket 改成 `autoConnect: false`**：因為 handshake 要帶 JWT，必須等 token 就緒才能 connect。Lobby/MainMenu mount 時若 `!socket.connected` 要先 `socket.connect()` 再 `socket.once('connect', ...)`。Login 完 `reconnectSocket()`、Logout 時 `disconnectSocket()`。
+- **token 失效時 socket 會 connect_error 'unauthorized:*'**：`net/socket.js` 已捕捉這個 prefix 並 dispatch `oc:auth-cleared`；`App.jsx` 全域監聽該事件強制踢回 Login。寫新流程時不要硬吃這個錯。
+- **`records.players` 不再是 keyed map**：matchService.getSnapshot 回的是 array。要找特定使用者用 `players.find(p => p.id === userId)` 而非 `players[uuid]`。同樣 `byCharacter` 聚合不存在了，要 client 從 `matches[].participants` 自己算（範例見 `MatchHistory.jsx` 的 `buildByCharacter`）。
+- **參與者 (`participants[i]`) 欄位是 `userId / displayName`，不是 `uuid / name`**：matchService.getSnapshot 與 lobby Player 都改了。socketHandlers / match.js / 任何 client 渲染戰績的程式都要對齊。
+- **BR 座標 corner-origin**：viewBox `0 0 28 14`，x ∈ [0, 28], y ∈ [0, 14]（commit c30b726 把場地從 20×9 擴大到 28×14）。跟舊版 center-origin 不同。
 - **BR covers 是矩形列表 `[c,r,w,h]`**：`simulation` 內用 `expandCovers` 轉成 `Set<"c,r">`。畫 mini-map 的時候**直接用矩形**（別展開成 cells，會多很多 DOM）。
 - **BR bullets 是 float 座標**：命中用 `(p.x-x)² + (p.y-y)² ≤ (PLAYER_RADIUS+PROJECTILE_RADIUS)²`。SVG 直接用 `cx/cy` 對應世界座標。
 - **BR aim 計算要扣 letterbox**：SVG 是 `xMidYMid meet`，所以 client 把滑鼠座標換算世界座標時要用 `scale = min(rect.w/COLS, rect.h/ROWS)`，非獨立縮放。`useInputBR` 已處理。
 - **BR snapshot 裡 poison 是 array，server state 裡是 Set**：`buildSnapshotPayload` 負責轉換。client 讀 `poison.infected` 當 array 用、`severe` 做 O(1) 查詢前要轉成 `new Set(poison.severe)`。
 - **`facing` 是 radians**：任何 `facing === 'left' ? -1 : 1` 這種字串判斷都是舊碼。需要水平翻轉貼圖時用 `Math.cos(facing) < 0`。
+- **BR 弧形盾方向判定**：子彈是否在弧內 = `|wrapPi(atan2(b.y - hit.y, b.x - hit.x) - hit.facing)| ≤ SHIELD_ARC_HALF_RAD`。`hit.facing` 與 LMB 射擊方向同（每 tick 由 `aimAngle` 覆寫）。要新增類似機制（例如「弧形 melee」）時直接 reuse 這個公式。
 - **`SET_GAME_TYPE` host only**：非 host client 也可以 emit（我們的 Lobby.jsx 就會 emit），server 會回 `not_host` ERROR；client 忽略即可。這是**故意設計**成冪等的——永遠是 host 的版本會生效，LOBBY_STATE 會把正確 gameType 送給其他人。
 - **`left 鍵拖出 arena 不放會卡住連打`**：`mouseup` 要掛 window 層（不是 arena），另外掛 `window blur` 一併放開。`useInputBR` 已處理。
 - **BR events slice**：`match.js` 在 tick 開頭記錄 `eventsStartIdx = this.state.events.length`，tick 結尾用 `state.events.slice(eventsStartIdx)` 切出當 tick 事件再廣播。忘記 slice 的話事件永遠到不了 client。
@@ -403,8 +465,8 @@ menu → history (MatchHistory)
 - **斷線＝淘汰**：v1 不支援斷線重連，中場斷線直接判死。
 - **同格不處理碰撞**：兩個玩家可以重疊在同一位置。
 - **老闆鍵被凍住時仍可被攻擊**：故意的平衡設計。
-- **戰績只保留最後 10 場**：`records.js` 的 `MAX_MATCHES` 常數；個人累計 running sum 不捨棄。
-- **身分靠 localStorage UUID**：清 cookie / 換瀏覽器 / 私密模式 = 新身分。
+- **戰績全部存 Postgres**：沒有 10 場上限；查詢層 `matchService.getSnapshot()` 預設拿最近 20 場。
+- **身分靠 admin 發放的帳號**：玩家進站需登入；token 24h 過期。Admin 停用帳號 / 改密碼後該使用者所有 active token 即時失效（透過 Redis blocklist）。Redis 掛掉時 blocklist 失效但不影響登入流程。
 - **Territory 隊伍隨機分配**：目前 Lobby 沒有隊伍選擇 UI，server 在 `createInitialState` 時依 player 加入順序輪詢分隊。若要玩家自選隊伍，需擴充 Lobby。
 - **BR `dash` 無敵僅 0.2s**。
 - **BR 毒圈規則**：30s 後第 1 波（四邊隨機 0.6 機率汙染）、之後每 15s 從 infected 鄰居 0.55 機率擴散；嚴重格扣血 ×2。

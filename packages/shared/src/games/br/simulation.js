@@ -9,7 +9,7 @@ import {
   MAX_HP, PLAYER_RADIUS, PROJECTILE_RADIUS,
   MOVE_SPEED, MOVE_SPEED_SHIELD,
   SHOOT_CD_MS, BULLET_DMG, BULLET_SPEED, BULLET_MAX_DIST,
-  SHIELD_REDUCTION,
+  SHIELD_MAX_HP, SHIELD_ARC_HALF_RAD, SHIELD_BREAK_LOCK_MS,
   DASH_CELLS, DASH_CD_MS, DASH_INVULN_MS,
   POISON_DPS, POISON_SEVERE_MULT, POISON_START_MS, POISON_WAVE_INTERVAL_MS,
 } from './constants.js';
@@ -35,7 +35,8 @@ export const NAME = '經典大逃殺';
        alive, paused,
        moveX, moveY,            // 正規化後的移動向量（resolveTick 會乘 speed * dt）
        aimAngle, facing,        // radians
-       shielding,
+       shielding,                              // RMB held + canShield 過濾後的最終值
+       shieldHp, shieldMaxHp, shieldBrokenUntil, // 弧形盾耐久；shieldBrokenUntil>now 表 5s 鎖死期
        shootCdUntil, dashCdUntil, invulnUntil,
        lastPoisonTickAt, lastHurtAt,
      } },
@@ -134,6 +135,9 @@ export function createInitialState(players, config = {}, startedAtMs = Date.now(
       moveX: 0, moveY: 0,
       aimAngle: 0, facing: 0,
       shielding: false,
+      shieldHp: SHIELD_MAX_HP,
+      shieldMaxHp: SHIELD_MAX_HP,
+      shieldBrokenUntil: 0,
       shootCdUntil: 0,
       dashCdUntil: 0,
       invulnUntil: 0,
@@ -167,9 +171,10 @@ export function applyInput(state, playerId, input, now, rng = Math.random) {
     p.facing = input.aimAngle;
   }
 
-  // 舉盾（held）
+  // 舉盾（held）— 必須有耐久且不在破盾鎖死期才能真的舉
   const wasShielding = p.shielding;
-  p.shielding = !!input.shield;
+  const canShield = !!input.shield && p.shieldHp > 0 && now >= p.shieldBrokenUntil;
+  p.shielding = canShield;
   if (!wasShielding && p.shielding) {
     state.events.push({ type: 'shield_on', playerId, at: { x: p.x, y: p.y } });
   } else if (wasShielding && !p.shielding) {
@@ -197,8 +202,8 @@ export function applyInput(state, playerId, input, now, rng = Math.random) {
     state.events.push({ type: 'dash_move', playerId, from: { x: fromX, y: fromY }, to: { x: toX, y: toY } });
   }
 
-  // 射擊（held 子彈，吃 SHOOT_CD_MS 節流）
-  if (input.attack && now >= p.shootCdUntil) {
+  // 射擊（held 子彈，吃 SHOOT_CD_MS 節流）— 舉盾期間 LMB 互斥不發射
+  if (input.attack && now >= p.shootCdUntil && !p.shielding) {
     const id = state.nextBulletId++;
     const angle = p.aimAngle;
     const bullet = {
@@ -272,18 +277,43 @@ export function resolveTick(state, now, rng = Math.random) {
       if (dx * dx + dy * dy <= hitRadiusSq) { hit = p; break; }
     }
     if (hit) {
-      const dmg = hit.shielding
-        ? Math.max(1, Math.floor(BULLET_DMG * (1 - SHIELD_REDUCTION)))
-        : BULLET_DMG;
-      hit.hp -= dmg;
-      hit.lastHurtAt = now;
-      state.events.push({ type: 'damage', sourceId: b.ownerId, targetId: hit.id, amount: dmg, kind: 'bullet', at: { x: b.x, y: b.y } });
-      state.events.push({ type: 'projectile_hit', id: b.id, targetId: hit.id, at: { x: b.x, y: b.y } });
-      if (hit.hp <= 0) {
-        hit.hp = 0;
-        hit.alive = false;
-        state.events.push({ type: 'eliminated', playerId: hit.id });
+      // 舉盾且耐久 > 0：算子彈來向相對 hit.facing 的最短弧度差
+      let blocked = false;
+      if (hit.shielding && hit.shieldHp > 0) {
+        const fromBulletAngle = Math.atan2(b.y - hit.y, b.x - hit.x);
+        let diff = fromBulletAngle - hit.facing;
+        while (diff > Math.PI) diff -= 2 * Math.PI;
+        while (diff < -Math.PI) diff += 2 * Math.PI;
+        if (Math.abs(diff) <= SHIELD_ARC_HALF_RAD) {
+          blocked = true;
+          // 「最後一擊」邏輯：扣完到 0 即可，不會穿透剩餘到 HP
+          const absorbed = Math.min(hit.shieldHp, BULLET_DMG);
+          hit.shieldHp = Math.max(0, hit.shieldHp - absorbed);
+          state.events.push({
+            type: 'shield_block',
+            shooterId: b.ownerId, defenderId: hit.id,
+            at: { x: b.x, y: b.y }, shieldHp: hit.shieldHp,
+          });
+          if (hit.shieldHp <= 0) {
+            hit.shielding = false;
+            hit.shieldBrokenUntil = now + SHIELD_BREAK_LOCK_MS;
+            state.events.push({
+              type: 'shield_break', playerId: hit.id, at: { x: b.x, y: b.y },
+            });
+          }
+        }
       }
+      if (!blocked) {
+        hit.hp -= BULLET_DMG;
+        hit.lastHurtAt = now;
+        state.events.push({ type: 'damage', sourceId: b.ownerId, targetId: hit.id, amount: BULLET_DMG, kind: 'bullet', at: { x: b.x, y: b.y } });
+        if (hit.hp <= 0) {
+          hit.hp = 0;
+          hit.alive = false;
+          state.events.push({ type: 'eliminated', playerId: hit.id });
+        }
+      }
+      state.events.push({ type: 'projectile_hit', id: b.id, targetId: hit.id, at: { x: b.x, y: b.y } });
       continue;
     }
 
@@ -313,6 +343,16 @@ export function resolveTick(state, now, rng = Math.random) {
         p.alive = false;
         state.events.push({ type: 'eliminated', playerId: p.id });
       }
+    }
+  }
+
+  // 盾耐久回復：被破後鎖死 5s 結束 → 一次回滿
+  for (const p of Object.values(state.players)) {
+    if (!p.alive) continue;
+    if (p.shieldBrokenUntil > 0 && now >= p.shieldBrokenUntil) {
+      p.shieldHp = p.shieldMaxHp;
+      p.shieldBrokenUntil = 0;
+      state.events.push({ type: 'shield_recovered', playerId: p.id });
     }
   }
 

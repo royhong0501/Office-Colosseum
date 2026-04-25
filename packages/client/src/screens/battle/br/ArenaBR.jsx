@@ -5,6 +5,7 @@
 import { forwardRef } from 'react';
 import {
   ARENA_COLS, ARENA_ROWS, PLAYER_RADIUS, PROJECTILE_RADIUS,
+  SHIELD_ARC_HALF_RAD, SHIELD_MAX_HP,
 } from '@office-colosseum/shared/src/games/br/constants.js';
 import { getCharacterById } from '@office-colosseum/shared';
 import { CharacterSpriteSvg } from '../../../components/CharacterSprite.jsx';
@@ -62,17 +63,34 @@ const ArenaBR = forwardRef(function ArenaBR(
     const ch = getCharacterById(p.characterId);
     const isSelf = p.id === selfId;
     const hurt = hurtIds?.has(p.id);
-    // Shield glow
-    const shieldRing = p.shielding ? (
-      <circle
-        cx={p.x} cy={p.y} r={PLAYER_RADIUS + 0.18}
-        fill="none"
-        stroke="var(--accent-link)"
-        strokeWidth={0.08}
-        opacity={0.75}
-        style={{ animation: 'shieldBreath 0.9s ease-in-out infinite' }}
-      />
-    ) : null;
+    // Shield arc — 朝 facing ±SHIELD_ARC_HALF_RAD 的弧形
+    // 顏色依 shieldHp 比例：>=70% 藍、>=30% 黃、<30% 紅
+    let shieldArc = null;
+    if (p.shielding && (p.shieldHp ?? 0) > 0) {
+      const r = PLAYER_RADIUS + 0.22;
+      const a1 = (p.facing ?? 0) - SHIELD_ARC_HALF_RAD;
+      const a2 = (p.facing ?? 0) + SHIELD_ARC_HALF_RAD;
+      const x1 = p.x + Math.cos(a1) * r;
+      const y1 = p.y + Math.sin(a1) * r;
+      const x2 = p.x + Math.cos(a2) * r;
+      const y2 = p.y + Math.sin(a2) * r;
+      const d = `M ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2}`;
+      const pct = (p.shieldHp ?? 0) / (p.shieldMaxHp ?? SHIELD_MAX_HP);
+      const stroke = pct >= 0.7 ? 'var(--accent-link)'
+        : pct >= 0.3 ? '#c79a1a'
+        : 'var(--accent-danger)';
+      shieldArc = (
+        <path
+          d={d}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={0.12}
+          strokeLinecap="round"
+          opacity={0.85}
+          style={{ animation: 'shieldBreath 0.9s ease-in-out infinite' }}
+        />
+      );
+    }
     // 自己綠、敵人紅高亮
     const selfRing = (
       <circle
@@ -88,7 +106,7 @@ const ArenaBR = forwardRef(function ArenaBR(
     const hpColor = hpPct < 0.3 ? 'var(--accent-danger)' : hpPct < 0.6 ? '#c79a1a' : '#4f8d4f';
     playerEls.push(
       <g key={p.id}>
-        {shieldRing}
+        {shieldArc}
         {selfRing}
         <CharacterSpriteSvg character={ch} x={p.x} y={p.y} facing={p.facing ?? 0} hurt={hurt} paused={p.paused} />
         {/* HP bar */}

@@ -4,7 +4,8 @@ import {
   createInitialState, applyInput, resolveTick,
   aliveCount, getWinner,
   MAPS, expandCovers,
-  MAX_HP, BULLET_DMG, SHIELD_REDUCTION, DASH_CELLS,
+  MAX_HP, BULLET_DMG, DASH_CELLS,
+  SHIELD_MAX_HP, SHIELD_BREAK_LOCK_MS,
   POISON_DPS, POISON_SEVERE_MULT, POISON_START_MS, POISON_WAVE_INTERVAL_MS,
   ARENA_COLS, ARENA_ROWS,
   SHOOT_CD_MS, DASH_CD_MS, DASH_INVULN_MS,
@@ -134,18 +135,88 @@ test('resolveTick：子彈命中敵人扣 BULLET_DMG', () => {
   assert.equal(b.hp, MAX_HP - BULLET_DMG, `期望 HP = ${MAX_HP - BULLET_DMG}，實際 ${b.hp}`);
 });
 
-test('resolveTick：舉盾中受傷減至 30%', () => {
+test('resolveTick：弧內被擊中 → 盾扣 BULLET_DMG、HP 不變', () => {
   const s = createInitialState(players2, config0, startedAtMs);
   const a = s.players['p1'], b = s.players['p2'];
   a.x = 2.5; a.y = 1.5; b.x = 5.5; b.y = 1.5;
+  // a 朝 +X 射；b 面向 -X（朝 a，弧中心線 = π）→ 子彈在弧內
   b.shielding = true;
+  b.facing = Math.PI;
+  applyInput(s, 'p1', emptyInput({ aimAngle: 0, attack: true }), 0);
+  for (let i = 0; i < 10; i++) {
+    resolveTick(s, (i + 1) * TICK_MS);
+    if (b.shieldHp < SHIELD_MAX_HP) break;
+  }
+  assert.equal(b.hp, MAX_HP, 'HP 不應變動');
+  assert.equal(b.shieldHp, SHIELD_MAX_HP - BULLET_DMG, '盾耐久應扣 BULLET_DMG');
+  assert.ok(s.events.some(e => e.type === 'shield_block' && e.defenderId === 'p2'));
+});
+
+test('resolveTick：弧外被擊中（背後）→ 盾不變、HP 扣 BULLET_DMG', () => {
+  const s = createInitialState(players2, config0, startedAtMs);
+  const a = s.players['p1'], b = s.players['p2'];
+  a.x = 2.5; a.y = 1.5; b.x = 5.5; b.y = 1.5;
+  // b 面向 +X（背對 a，子彈從 -X 來，差 π → 弧外）
+  b.shielding = true;
+  b.facing = 0;
   applyInput(s, 'p1', emptyInput({ aimAngle: 0, attack: true }), 0);
   for (let i = 0; i < 10; i++) {
     resolveTick(s, (i + 1) * TICK_MS);
     if (b.hp < MAX_HP) break;
   }
-  const reduced = Math.max(1, Math.floor(BULLET_DMG * (1 - SHIELD_REDUCTION)));
-  assert.equal(b.hp, MAX_HP - reduced);
+  assert.equal(b.hp, MAX_HP - BULLET_DMG, '弧外應正常扣 BULLET_DMG');
+  assert.equal(b.shieldHp, SHIELD_MAX_HP, '盾耐久不應變');
+});
+
+test('resolveTick：「最後一擊」免費擋住 → shieldHp=0、shielding=false、shieldBrokenUntil 設好', () => {
+  const s = createInitialState(players2, config0, startedAtMs);
+  const a = s.players['p1'], b = s.players['p2'];
+  a.x = 2.5; a.y = 1.5; b.x = 5.5; b.y = 1.5;
+  b.shielding = true;
+  b.facing = Math.PI;
+  b.shieldHp = 5;  // 比 BULLET_DMG=14 小 → 觸發最後一擊
+  applyInput(s, 'p1', emptyInput({ aimAngle: 0, attack: true }), 0);
+  for (let i = 0; i < 10; i++) {
+    resolveTick(s, (i + 1) * TICK_MS);
+    if (b.shieldHp === 0) break;
+  }
+  assert.equal(b.hp, MAX_HP, '最後一擊不該扣 HP');
+  assert.equal(b.shieldHp, 0);
+  assert.equal(b.shielding, false);
+  assert.ok(b.shieldBrokenUntil > 0, 'shieldBrokenUntil 應被設定');
+  assert.ok(s.events.some(e => e.type === 'shield_break' && e.playerId === 'p2'));
+});
+
+test('applyInput：破盾鎖死期間舉盾無效', () => {
+  const s = createInitialState(players2, config0, startedAtMs);
+  const p = s.players['p1'];
+  p.shieldHp = 0;
+  p.shieldBrokenUntil = 5000;
+  applyInput(s, 'p1', emptyInput({ shield: true }), 1000);   // now < shieldBrokenUntil
+  assert.equal(p.shielding, false, '鎖死期間舉盾應被擋下');
+});
+
+test('resolveTick：5s 後 shield_recovered + shieldHp 回滿', () => {
+  const s = createInitialState(players2, config0, startedAtMs);
+  const p = s.players['p1'];
+  p.shieldHp = 0;
+  p.shieldBrokenUntil = 1000;  // 1s 處解鎖
+  resolveTick(s, 999);          // 還沒到
+  assert.equal(p.shieldHp, 0);
+  resolveTick(s, 1000);         // 剛好到
+  assert.equal(p.shieldHp, SHIELD_MAX_HP);
+  assert.equal(p.shieldBrokenUntil, 0);
+  assert.ok(s.events.some(e => e.type === 'shield_recovered' && e.playerId === 'p1'));
+});
+
+test('applyInput：舉盾期間 LMB 不射擊（互斥）', () => {
+  const s = createInitialState(players2, config0, startedAtMs);
+  const p = s.players['p1'];
+  // 先讓盾真的舉起來（耐久滿、不在鎖死期）
+  applyInput(s, 'p1', emptyInput({ shield: true, attack: true, aimAngle: 0 }), 100);
+  assert.equal(p.shielding, true);
+  assert.equal(s.bullets.length, 0, '舉盾時 LMB 不該發射子彈');
+  assert.ok(!s.events.some(e => e.type === 'projectile_spawn'));
 });
 
 test('resolveTick：dash 無敵期間不受傷', () => {

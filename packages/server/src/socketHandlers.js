@@ -1,12 +1,31 @@
-// singleton Lobby + Match，多遊戲平台：Match 依 lobby.gameType 分派。
-// （房間管理檔 rooms.js / room.js 仍保留為第二階段多房預留）
+// Socket.io entry：handshake middleware 驗 JWT、把 user 寫進 socket.data，
+// 之後所有 event handler 都可從 socket.data.user 拿到當前使用者。
+//
+// 如果連線未帶 token、token 無效、被 revoke 或帳號被停用，handshake 直接失敗，
+// client 收到 connect_error 'unauthorized' 並跳回登入頁。
 
 import { MSG } from '@office-colosseum/shared';
 import { Lobby } from './lobby.js';
 import { Match } from './match.js';
-import * as records from './records.js';
+import * as matchService from './services/matchService.js';
+import { verifyAndLoad } from './auth/middleware.js';
+import { hsetOnline, hdelOnline } from './services/presenceService.js';
 
 export function registerSocketHandlers(io) {
+  // === handshake auth middleware ===
+  io.use(async (socket, next) => {
+    const token = socket.handshake.auth?.token;
+    try {
+      const { user } = await verifyAndLoad(token);
+      socket.data.user = {
+        id: user.id, username: user.username, role: user.role, displayName: user.displayName,
+      };
+      next();
+    } catch (e) {
+      next(new Error('unauthorized:' + e.message));
+    }
+  });
+
   const lobby = new Lobby(io);
   let match = null;
 
@@ -15,9 +34,20 @@ export function registerSocketHandlers(io) {
   }
 
   io.on('connection', socket => {
-    socket.on(MSG.JOIN, ({ name, uuid }) => lobby.join(socket.id, name || 'Player', uuid ?? null));
-    socket.on(MSG.GET_RECORDS, () => {
-      socket.emit(MSG.RECORDS, records.getSnapshot());
+    const user = socket.data.user;
+    hsetOnline(user.id, socket.id).catch(() => {});
+
+    // JOIN 不再相信 client payload；身分一律從 socket.data.user 取
+    socket.on(MSG.JOIN, () => lobby.join(socket.id, user));
+
+    socket.on(MSG.GET_RECORDS, async () => {
+      try {
+        const snapshot = await matchService.getSnapshot();
+        socket.emit(MSG.RECORDS, snapshot);
+      } catch (e) {
+        console.warn('[GET_RECORDS] failed:', e.message);
+        replyError(socket, 'records_failed');
+      }
     });
     socket.on(MSG.PICK, ({ characterId }) => lobby.pick(socket.id, characterId));
     socket.on(MSG.READY, ({ ready }) => lobby.setReady(socket.id, ready));
@@ -67,6 +97,7 @@ export function registerSocketHandlers(io) {
     socket.on('disconnect', () => {
       lobby.leave(socket.id);
       if (match) match.setPaused(socket.id, false);
+      hdelOnline(user.id).catch(() => {});
     });
   });
 }
