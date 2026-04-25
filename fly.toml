@@ -1,7 +1,6 @@
-# fly.toml app configuration file generated for office-colosseum on 2026-04-20T21:38:32+08:00
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
+# fly.toml — office-colosseum
+# 單機部署：min=max=1 machine、suspend 模式（沒人玩時休眠省錢，第一個請求會 wake up）
+# DATABASE_URL / REDIS_URL / JWT_SECRET / ADMIN_INITIAL_* 走 fly secrets set，不寫在這裡
 
 app = 'office-colosseum'
 primary_region = 'nrt'
@@ -22,8 +21,24 @@ primary_region = 'nrt'
   max_machines_running = 1
   processes = ['app']
 
+  # Dockerfile CMD 啟動時會跑 prisma migrate deploy + db:seed，
+  # 在那段期間 /health 會 connection refused，fly 會等到 healthy 才把流量導進來。
+  [[http_service.checks]]
+    interval = '15s'
+    timeout = '5s'
+    grace_period = '30s'
+    method = 'GET'
+    path = '/health'
+
+[[restart]]
+  policy = 'on-failure'
+  retries = 5
+
+# socket.io 玩家斷線要乾淨關閉（match 結算寫 DB 等），多給幾秒
+kill_signal = 'SIGTERM'
+kill_timeout = '15s'
+
 [[vm]]
   size = 'shared-cpu-1x'
-  memory = '256mb'
+  memory = '512mb'
   cpus = 1
-  memory_mb = 256
