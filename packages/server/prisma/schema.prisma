@@ -3,7 +3,9 @@
 // 不再保留「最多 10 場」上限（DB 隨便存），查詢層分頁。
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // node:22-alpine 是 OpenSSL 3，不是 1.1；明確指定才會打對 binary
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {

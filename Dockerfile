@@ -2,6 +2,9 @@
 FROM node:22-alpine AS builder
 WORKDIR /app
 
+# Prisma 在 alpine 上需要 openssl 才能找到 libssl3，不然 runtime 會 fallback 到 openssl-1.1.x binary 而崩潰
+RUN apk add --no-cache openssl
+
 COPY package.json package-lock.json ./
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/server/package.json ./packages/server/
@@ -16,6 +19,9 @@ RUN npm run build
 # ---------- Stage 2: runtime ----------
 FROM node:22-alpine AS runtime
 WORKDIR /app
+
+# Prisma engine runtime 也要 libssl3
+RUN apk add --no-cache openssl
 
 ENV NODE_ENV=production
 ENV PORT=3000
