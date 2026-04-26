@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createInitialState, applyInput, resolveTick,
   aliveCount, getWinner,
+  buildSnapshotPayload, buildMatchStartPayload,
   MAX_HP, MAX_MP, BULLET_DMG, SHOOT_CD_MS, MP_REGEN_PER_SEC,
   ARENA_COLS, ARENA_ROWS, ROUND_DURATION_MS,
   SKILLS, SKILL_KEYS,
@@ -208,4 +209,55 @@ test('超過 ROUND_DURATION_MS → ended + 剩餘 HP 高者贏', () => {
 
 test('SKILL_KEYS：5 個', () => {
   assert.deepEqual(SKILL_KEYS.sort(), ['freeze', 'merge', 'readonly', 'undo', 'validate'].sort());
+});
+
+test('aliveCount：alive=false 不算', () => {
+  const s = createInitialState(players2, {}, startedAtMs);
+  assert.equal(aliveCount(s), 2);
+  s.players.p1.alive = false;
+  assert.equal(aliveCount(s), 1);
+});
+
+test('buildSnapshotPayload：含 tick / phase / players / bullets / traps / events', () => {
+  const s = createInitialState(players2, {}, startedAtMs);
+  const events = [{ type: 'damage', amount: 10 }];
+  const payload = buildSnapshotPayload(s, events);
+  assert.equal(payload.tick, s.tick);
+  assert.equal(payload.phase, 'playing');
+  assert.equal(payload.startedAtMs, startedAtMs);
+  assert.equal(payload.roundEndsAtMs, startedAtMs + ROUND_DURATION_MS);
+  assert.ok(payload.players);
+  assert.ok(Array.isArray(payload.bullets));
+  assert.ok(Array.isArray(payload.traps));
+  assert.deepEqual(payload.events, events);
+});
+
+test('buildMatchStartPayload：含 gameType / config / state', () => {
+  const s = createInitialState(players2, {}, startedAtMs);
+  const payload = buildMatchStartPayload(s, { foo: 'bar' });
+  assert.equal(payload.gameType, 'items');
+  assert.deepEqual(payload.config, { foo: 'bar' });
+  assert.ok(payload.state);
+  assert.equal(payload.state.phase, 'playing');
+});
+
+test('silenced 玩家可以移動與射擊（只擋技能）', () => {
+  const s = createInitialState(players2, {}, startedAtMs);
+  const p = s.players.p1;
+  p.silencedUntil = 10000;
+  applyInput(s, 'p1', emptyInput({ moveX: 1, attack: true, aimAngle: 0 }), 500);
+  resolveTick(s, 600);
+  assert.notEqual(p.x, 1.5, 'silenced 應該還能移動');
+  assert.equal(s.bullets.length, 1, 'silenced 應該還能射擊');
+});
+
+test('paused 玩家：applyInput 與 resolveTick 都跳過', () => {
+  const s = createInitialState(players2, {}, startedAtMs);
+  const p = s.players.p1;
+  p.paused = true;
+  const beforeX = p.x;
+  applyInput(s, 'p1', emptyInput({ moveX: 1, attack: true }), 500);
+  resolveTick(s, 600);
+  assert.equal(p.x, beforeX, 'paused 不能移動');
+  assert.equal(s.bullets.length, 0, 'paused 不能射擊');
 });

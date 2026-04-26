@@ -8,6 +8,8 @@ import { registerSocketHandlers } from './socketHandlers.js';
 import { buildAuthRouter } from './auth/routes.js';
 import { buildAdminRouter } from './admin/routes.js';
 import { getPrisma } from './db/prisma.js';
+import { replay as replayMatchFallback } from './services/matchFallbackQueue.js';
+import * as matchService from './services/matchService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -44,9 +46,19 @@ const httpServer = createServer(app);
 const io = new IOServer(httpServer, { cors: { origin: '*' } });
 registerSocketHandlers(io);
 
-// 暖機 Prisma client（避免第一個請求才連線）
+// 暖機 Prisma client + 嘗試 replay 上次失敗的戰績寫入
 getPrisma().$connect()
-  .then(() => console.log('[db] prisma connected'))
+  .then(async () => {
+    console.log('[db] prisma connected');
+    try {
+      const r = await replayMatchFallback(matchService.recordMatch);
+      if (r.replayed || r.kept) {
+        console.log(`[match-fallback] replay: ${r.replayed} synced, ${r.kept} kept for retry`);
+      }
+    } catch (e) {
+      console.warn('[match-fallback] replay step failed:', e.message);
+    }
+  })
   .catch((e) => console.warn('[db] prisma connect failed:', e.message));
 
 const PORT = Number(process.env.PORT) || 3000;

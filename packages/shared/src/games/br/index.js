@@ -8,4 +8,5 @@ export {
   createInitialState, applyInput, resolveTick,
   aliveCount, getWinner,
   buildSnapshotPayload, buildMatchStartPayload,
+  sanitizeInput,
 } from './simulation.js';

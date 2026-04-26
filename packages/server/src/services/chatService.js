@@ -4,7 +4,10 @@
 
 import { getPrisma } from '../db/prisma.js';
 import { consume, RateLimitError } from './rateLimiter.js';
-import { CHAT_CONTENT_MAX, CHAT_RATE_LIMIT_SEC, CHAT_HISTORY_PAGE_SIZE } from '@office-colosseum/shared';
+import {
+  CHAT_CONTENT_MAX, CHAT_RATE_LIMIT_SEC, CHAT_HISTORY_PAGE_SIZE,
+  sanitizeChatContent,
+} from '@office-colosseum/shared';
 
 export class ChatValidationError extends Error {
   constructor(code) { super(code); this.code = code; }
@@ -34,9 +37,10 @@ export async function sendMessage({ senderId, channel, recipientId, content }) {
   const dbChannel = CHANNEL_MAP[channel];
   if (!dbChannel) throw new ChatValidationError('chat_bad_channel');
 
-  // 2) 驗 content
-  const trimmed = (content ?? '').toString();
-  if (!trimmed.trim()) throw new ChatValidationError('chat_empty');
+  // 2) 驗 content：sanitize 先做（剝控制字元 / bidi override / 零寬字元），
+  //    再驗空字串與長度。長度上限套在 sanitize 後，避免攻擊者塞零寬字元繞過。
+  const trimmed = sanitizeChatContent(content ?? '');
+  if (!trimmed) throw new ChatValidationError('chat_empty');
   if (trimmed.length > CHAT_CONTENT_MAX) throw new ChatValidationError('chat_too_long');
 
   // 3) DM 必須有 recipient 且不能是自己

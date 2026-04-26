@@ -5,4 +5,5 @@ export {
   aliveCount, getWinner,
   countByTeam, partitionTeams,
   buildSnapshotPayload, buildMatchStartPayload,
+  sanitizeInput,
 } from './simulation.js';

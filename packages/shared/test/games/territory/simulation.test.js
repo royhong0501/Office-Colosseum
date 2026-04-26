@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createInitialState, applyInput, resolveTick,
   aliveCount, getWinner, countByTeam, partitionTeams,
+  buildSnapshotPayload, buildMatchStartPayload,
   ARENA_COLS, ARENA_ROWS, MAX_TEAMS, ROUND_DURATION_MS,
 } from '../../../src/games/territory/index.js';
 import { TICK_MS } from '../../../src/constants.js';
@@ -158,4 +159,59 @@ test('時限到 → ended', () => {
   const s = createInitialState(players4, {}, 0);
   resolveTick(s, ROUND_DURATION_MS + 1);
   assert.equal(s.phase, 'ended');
+});
+
+test('aliveCount：alive=false 不算', () => {
+  const s = createInitialState(players4, {}, 0);
+  assert.equal(aliveCount(s), 4);
+  s.players.p1.alive = false;
+  assert.equal(aliveCount(s), 3);
+});
+
+test('partitionTeams：5 人（奇數）→ 3 隊（不對稱分配但都有人）', () => {
+  const teams = partitionTeams([
+    { id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }, { id: 'e' },
+  ]);
+  assert.ok(teams.length >= 2 && teams.length <= MAX_TEAMS);
+  const total = teams.reduce((s, t) => s + t.playerIds.length, 0);
+  assert.equal(total, 5);
+  for (const t of teams) {
+    assert.ok(t.playerIds.length >= 1, `每隊至少 1 人，team ${t.id} 是 ${t.playerIds.length}`);
+  }
+});
+
+test('buildSnapshotPayload：含 cells / counts / teams / events', () => {
+  const s = createInitialState(players4, {}, 0);
+  const events = [{ type: 'paint', cells: [[0, 0, 0]] }];
+  const payload = buildSnapshotPayload(s, events);
+  assert.equal(payload.tick, s.tick);
+  assert.equal(payload.phase, 'playing');
+  assert.equal(payload.startedAtMs, 0);
+  assert.equal(payload.roundEndsAtMs, ROUND_DURATION_MS);
+  assert.ok(payload.players);
+  assert.ok(payload.teams);
+  assert.ok(payload.cells);
+  assert.ok(Array.isArray(payload.counts));
+  assert.equal(payload.counts.length, 2);
+  assert.deepEqual(payload.events, events);
+});
+
+test('buildMatchStartPayload：含 gameType / state', () => {
+  const s = createInitialState(players4, {}, 0);
+  const payload = buildMatchStartPayload(s, { foo: 'bar' });
+  assert.equal(payload.gameType, 'territory');
+  assert.deepEqual(payload.config, { foo: 'bar' });
+  assert.equal(payload.state.phase, 'playing');
+  assert.equal(payload.state.teams.length, 2);
+});
+
+test('paused 玩家：移動跳過但 alive=true 保留', () => {
+  const s = createInitialState(players4, {}, 0);
+  const p = s.players.p1;
+  p.paused = true;
+  const beforeX = p.x;
+  applyInput(s, 'p1', emptyInput({ moveX: 1 }), 100);
+  resolveTick(s, 200);
+  assert.equal(p.x, beforeX, 'paused 不能移動');
+  assert.equal(p.alive, true, 'paused 不影響 alive');
 });

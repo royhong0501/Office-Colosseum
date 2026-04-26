@@ -5,6 +5,7 @@
 import { TICK_MS, MSG } from '@office-colosseum/shared';
 import { loadGame } from './games/index.js';
 import * as matchService from './services/matchService.js';
+import { enqueue as enqueueMatchFallback } from './services/matchFallbackQueue.js';
 
 export class Match {
   constructor(io, lobbyPlayers, gameType, config, onEnd) {
@@ -41,7 +42,12 @@ export class Match {
     this.interval = setInterval(() => this.tick(Date.now()), TICK_MS);
   }
 
-  queueInput(playerId, input) { this.inputs.set(playerId, input); }
+  queueInput(playerId, input) {
+    const sanitize = this.game.sim.sanitizeInput;
+    const clean = sanitize ? sanitize(input) : input;
+    if (!clean) return;
+    this.inputs.set(playerId, clean);
+  }
 
   tick(now) {
     const { sim, bot } = this.game;
@@ -102,13 +108,17 @@ export class Match {
       isWinner: p.id === winnerId,
       isBot: !!p.isBot,
     }));
-    matchService.recordMatch({
+    const recordPayload = {
       gameType: this.gameType,
       config: this.config,
       startedAt: this.startedAtMs,
       endedAt,
       participants,
-    }).catch(err => console.warn('[match] recordMatch failed:', err.message));
+    };
+    matchService.recordMatch(recordPayload).catch(err => {
+      console.warn('[match] recordMatch failed, enqueueing fallback:', err.message);
+      enqueueMatchFallback(recordPayload);
+    });
     this.io.emit(MSG.MATCH_END, { winnerId, summary: this.stats });
     if (this.onEnd) this.onEnd();
   }

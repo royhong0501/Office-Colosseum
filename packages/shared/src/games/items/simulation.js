@@ -93,6 +93,25 @@ function autoSpawns(n) {
 }
 
 /* ------------------------------------------------------------
+   sanitizeInput — Server 收到 client 的 INPUT 後先過這層白名單
+   ------------------------------------------------------------ */
+export function sanitizeInput(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const num = (v) => (Number.isFinite(v) ? v : 0);
+  const skill = typeof raw.skill === 'string' && SKILL_KEYS.includes(raw.skill)
+    ? raw.skill
+    : null;
+  return {
+    seq: Number.isFinite(raw.seq) ? (raw.seq | 0) : 0,
+    moveX: num(raw.moveX),
+    moveY: num(raw.moveY),
+    aimAngle: num(raw.aimAngle),
+    attack: !!raw.attack,
+    skill,
+  };
+}
+
+/* ------------------------------------------------------------
    applyInput
    input = { seq, moveX, moveY, aimAngle, attack, skill: 'freeze'|'undo'|... or null }
    ------------------------------------------------------------ */

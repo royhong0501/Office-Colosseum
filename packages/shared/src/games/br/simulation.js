@@ -149,6 +149,24 @@ export function createInitialState(players, config = {}, startedAtMs = Date.now(
   return state;
 }
 
+/* ---- sanitizeInput ------------------------------------------ */
+// Server 收到 client 的 INPUT 後，先過這層白名單再傳給 applyInput。
+// 拒絕非物件 / NaN / Infinity，把布林強制 cast。
+// 不正規化向量長度（applyInput 內 Math.hypot 會處理）。
+export function sanitizeInput(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const num = (v) => (Number.isFinite(v) ? v : 0);
+  return {
+    seq: Number.isFinite(raw.seq) ? (raw.seq | 0) : 0,
+    moveX: num(raw.moveX),
+    moveY: num(raw.moveY),
+    aimAngle: num(raw.aimAngle),
+    attack: !!raw.attack,
+    shield: !!raw.shield,
+    dash: !!raw.dash,
+  };
+}
+
 /* ---- applyInput ---------------------------------------------- */
 
 export function applyInput(state, playerId, input, now, rng = Math.random) {

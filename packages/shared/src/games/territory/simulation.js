@@ -109,6 +109,20 @@ function allocateSpawns(teams) {
 }
 
 /* ------------------------------------------------------------
+   sanitizeInput — Server 收到 client 的 INPUT 後先過這層白名單
+   ------------------------------------------------------------ */
+export function sanitizeInput(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const num = (v) => (Number.isFinite(v) ? v : 0);
+  return {
+    seq: Number.isFinite(raw.seq) ? (raw.seq | 0) : 0,
+    moveX: num(raw.moveX),
+    moveY: num(raw.moveY),
+    aimAngle: num(raw.aimAngle),
+  };
+}
+
+/* ------------------------------------------------------------
    applyInput — Territory 只用 moveX/moveY（無射擊、無技能）
    ------------------------------------------------------------ */
 export function applyInput(state, playerId, input, now, _rng) {

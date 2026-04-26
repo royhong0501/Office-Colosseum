@@ -12,6 +12,11 @@ import { verifyAndLoad } from './auth/middleware.js';
 import { hsetOnline, hdelOnline } from './services/presenceService.js';
 import { registerChatHandlers } from './chatHandlers.js';
 
+// INPUT 事件用 in-memory per-socket 滑窗。30Hz 預期 30/s，給 3x buffer 容許小爆量；
+// 超過此上限直接 drop（不回 ERROR — 避免被攻擊者拿來做訊號），日誌只在 windows 之間 warn 一次。
+const INPUT_RATE_PER_SEC = 90;
+const INPUT_WINDOW_MS = 1000;
+
 export function registerSocketHandlers(io) {
   // === handshake auth middleware ===
   io.use(async (socket, next) => {
@@ -38,6 +43,11 @@ export function registerSocketHandlers(io) {
     const user = socket.data.user;
     hsetOnline(user.id, socket.id).catch(() => {});
     registerChatHandlers(io, socket);
+
+    // INPUT rate limit 狀態（per-socket，連線結束自動 GC）
+    let inputCount = 0;
+    let inputWindowEndsAt = Date.now() + INPUT_WINDOW_MS;
+    let inputDropWarnedAt = 0;
 
     // JOIN 不再相信 client payload；身分一律從 socket.data.user 取
     socket.on(MSG.JOIN, () => lobby.join(socket.id, user));
@@ -83,7 +93,24 @@ export function registerSocketHandlers(io) {
         match = null;
       }
     });
-    socket.on(MSG.INPUT, input => { if (match) match.queueInput(socket.id, input); });
+    socket.on(MSG.INPUT, input => {
+      if (!match) return;
+      const now = Date.now();
+      if (now >= inputWindowEndsAt) {
+        inputCount = 0;
+        inputWindowEndsAt = now + INPUT_WINDOW_MS;
+      }
+      inputCount++;
+      if (inputCount > INPUT_RATE_PER_SEC) {
+        // 同一 window 只 warn 一次，避免日誌洪水
+        if (inputDropWarnedAt < inputWindowEndsAt - INPUT_WINDOW_MS) {
+          console.warn(`[input] rate limit exceeded user=${user.username} socket=${socket.id}`);
+          inputDropWarnedAt = now;
+        }
+        return;
+      }
+      match.queueInput(socket.id, input);
+    });
     socket.on(MSG.PAUSED, ({ paused }) => { if (match) match.setPaused(socket.id, paused); });
     socket.on(MSG.LEAVE, () => lobby.leave(socket.id));
     socket.on(MSG.ADD_BOT, () => {

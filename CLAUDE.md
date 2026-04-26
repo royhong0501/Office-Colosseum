@@ -225,7 +225,8 @@ GET_RECORDS ──► matchService.getSnapshot ──► Postgres
 | `constants.js` | 通用常數（`MAX_PLAYERS=8`, `MIN_PLAYERS=2`, `TICK_RATE=30`, `TICK_MS`, `PLAYER_NAME_MAX=16`） |
 | `characters.js` | 20 隻角色（10 貓 + 10 狗）。僅 `{id, name, nameEn, type, color}` —— 當皮膚用 |
 | `math.js` | `manhattan / euclidean / distSq / clamp` 基本數學工具 |
-| `protocol.js` | `MSG` event 名稱常數 + `GAME_TYPES` 清單 + `DEFAULT_GAME_TYPE='battle-royale'` |
+| `protocol.js` | `MSG` event 名稱常數 + `GAME_TYPES` 清單 + `DEFAULT_GAME_TYPE='battle-royale'` + 聊天常數（`CHAT_CONTENT_MAX`、`CHAT_RATE_LIMIT_SEC`、`CHAT_HISTORY_PAGE_SIZE`） |
+| `chatSanitize.js` | `sanitizeChatContent(raw)` — 剝 ASCII 控制字元、bidi override、零寬字元、做 NFC 正規化。**server 寫入聊天訊息前一律過此** |
 | `index.js` | 統一 re-export，client/server 皆 import 這一個（`shared/games/<id>/` 需要深層 import） |
 | `games/br/` | 經典大逃殺規則模組（見下方） |
 | `games/items/` | 道具戰規則模組（見下方） |
@@ -237,7 +238,7 @@ GET_RECORDS ──► matchService.getSnapshot ──► Postgres
 |---|---|
 | `constants.js` | `ARENA_COLS=28, ARENA_ROWS=14`, `MAX_HP=100`, `MOVE_SPEED=5.2`（cells/s, 舉盾時 `MOVE_SPEED_SHIELD=3.1`）、`SHOOT_CD_MS=280`, `BULLET_DMG=14`, `BULLET_SPEED=16`, `BULLET_MAX_DIST=14`、舉盾：`SHIELD_MAX_HP=100, SHIELD_ARC_DEG=90`（前 ±45°）、`SHIELD_BREAK_LOCK_MS=5000`（破盾鎖死 5s 後一次回滿）、`SHIELD_REDUCTION` deprecated（弧內 100% 擋、弧外 0%）；`DASH_CELLS=2, DASH_CD_MS=6000, DASH_INVULN_MS=200`, `POISON_DPS=5, POISON_SEVERE_MULT=2, POISON_START_MS=30000, POISON_WAVE_INTERVAL_MS=15000` |
 | `maps.js` | 5 張地圖：年度預算報表 / 甘特圖 / 樞紐分析 / 股價 K 線 / 銷售熱區。`covers` 為 `[col, row, w, h]` 矩形列表；`expandCovers() → Set<"c,r">` 給碰撞用；`autoSpawns(map)` 四角+中點自動生出 spawn 點（避 cover）；`pickMap(idxOrId)`、`getMapById(id)` |
-| `simulation.js` | `createInitialState / applyInput / resolveTick / aliveCount / getWinner / buildSnapshotPayload / buildMatchStartPayload` |
+| `simulation.js` | `createInitialState / applyInput / resolveTick / aliveCount / getWinner / buildSnapshotPayload / buildMatchStartPayload / sanitizeInput` |
 
 ### BR `GameState` 形狀
 
@@ -315,7 +316,7 @@ GET_RECORDS ──► matchService.getSnapshot ──► Postgres
 | 檔案 | 內容 |
 |---|---|
 | `constants.js` | `ARENA_COLS=18, ARENA_ROWS=9`, `MAX_HP=100, MAX_MP=100, MP_REGEN_PER_SEC=2`, `MOVE_SPEED=4.8`（cells/s, slowed=2.4）、`SHOOT_CD_MS=600, BULLET_DMG=10, BULLET_SPEED=14, BULLET_MAX_DIST=12`, `ROUND_DURATION_MS=180000`, `SKILLS` 物件（freeze/undo/merge/readonly/validate 的 mpCost + cdMs + durationMs/rewindMs）, `SKILL_KEYS` 陣列, `HP_HISTORY_INTERVAL_MS=250, HP_HISTORY_LEN=12` |
-| `simulation.js` | `createInitialState / applyInput / resolveTick / aliveCount / getWinner / buildSnapshotPayload / buildMatchStartPayload`；trap 放在施放者當下 cell，敵人踩到才觸發；`undo` 會查 `hpHistory` 復原 2 秒前 HP 並清除 freeze/slow |
+| `simulation.js` | `createInitialState / applyInput / resolveTick / aliveCount / getWinner / buildSnapshotPayload / buildMatchStartPayload / sanitizeInput`；trap 放在施放者當下 cell，敵人踩到才觸發；`undo` 會查 `hpHistory` 復原 2 秒前 HP 並清除 freeze/slow |
 
 ### Items `GameState` 形狀
 
@@ -367,7 +368,7 @@ GET_RECORDS ──► matchService.getSnapshot ──► Postgres
 | 檔案 | 內容 |
 |---|---|
 | `constants.js` | `ARENA_COLS=22, ARENA_ROWS=13`, `MAX_TEAMS=3`, `MOVE_SPEED=4.5`（cells/s）, `ROUND_DURATION_MS=180000`, `TEAM_COLORS`（3 套預設 palette：A 淺綠 / B 淺紅 / C 淺黃） |
-| `simulation.js` | `partitionTeams(players)` 依人數分隊（4→2v2、6→3×2、奇數各半）；移動每 tick 經過新 cell → 標隊色；每 tick 對剛塗色的 team 跑 flood fill，任何「被自己隊色完全包圍」的連通區塊（含他隊色或空白）整塊翻色並 push `area_captured`。`getWinner` 依 `countByTeam` 最大隊回第一位 playerId |
+| `simulation.js` | `partitionTeams(players)` 依人數分隊（4→2v2、6→3×2、奇數各半）；移動每 tick 經過新 cell → 標隊色；每 tick 對剛塗色的 team 跑 flood fill，任何「被自己隊色完全包圍」的連通區塊（含他隊色或空白）整塊翻色並 push `area_captured`。`getWinner` 依 `countByTeam` 最大隊回第一位 playerId。export `sanitizeInput` 給 server 做 INPUT 白名單 |
 
 ### Territory `GameState` 形狀
 
@@ -417,6 +418,7 @@ Express + socket.io，`src/index.js` 掛靜態 `../client/dist`、auth/admin rou
 - **`auth/routes.js`**：`POST /auth/login`（過 IP+username 兩條 rate limit）、`POST /auth/logout`（jti 寫 blocklist）、`GET /auth/me`、`PATCH /auth/me`（改 displayName）。
 - **`admin/routes.js`**：`POST/GET /admin/users`、`PATCH /admin/users/:id`（停用→自動 revoke 該 user 所有 active jti）、`POST /admin/users/:id/reset-password`（同上）、`GET /admin/presence`。全程 `requireAdmin`。
 - **`services/matchService.js`**：取代舊 `records.js`。`recordMatch(...)` 寫 `Match` + N 個 `MatchParticipant`（transaction），寫完 `invalidateLeaderboard()`；`getSnapshot()` 給 client `GET_RECORDS` 用，回最近 N 場 + top 200 聚合。
+- **`services/matchFallbackQueue.js`**：戰績寫入 fallback。`recordMatch` throw 時 `match.js` 會 `enqueue(payload)` 到 `data/match-fallback.ndjson`；server 啟動 `getPrisma().$connect()` 後跑 `replay(matchService.recordMatch)`，成功的條目移除、失敗的留下下次再試。`recordFn` 回 `{skipped:true}` 不算錯（商業邏輯已決定不寫）。`MATCH_FALLBACK_PATH` env var 可改 queue 位置（測試用）。
 - **`services/blocklist.js`**：`trackJti(userId, jti, ttl)` 加進 `user:<id>:jtis` set；`blockJti(jti, ttl)` 寫 `blk:jti:<jti>`；`isBlocked(jti)` 查；`revokeAllForUser(userId)` 把該使用者的所有 jti 批量寫進 blocklist（停用 / 改密碼時用）。
 - **`services/rateLimiter.js`**：`consume({ key, limit, windowSec })` sliding-window；超過 throw `RateLimitError(retryAfterSec)`。
 - **`services/presenceService.js`**：`hsetOnline(userId, socketId)` / `hdelOnline(userId)` / `listOnline()`。
@@ -427,7 +429,7 @@ Express + socket.io，`src/index.js` 掛靜態 `../client/dist`、auth/admin rou
 - **`match.js`**（`Match` 通用 dispatcher）：建構子 `new Match(io, players, gameType, config, onEnd)`。tick loop 呼叫 `sim.*` 與 `bot.decideBotInput`。`end()` async 呼叫 `matchService.recordMatch(...)`，失敗 swallow（`.catch(console.warn)`）。
 - **`games/index.js`**：`GAMES` registry（gameType → `{ sim, bot }`），`loadGame(gameType)`。
 - **`games/brBot.js` / `itemsBot.js` / `territoryBot.js`**：各遊戲的 `decideBotInput(state, botId, now)`。策略未變（BR：腳下毒圈→逃中心 / 視線內 ≤ BULLET_MAX_DIST→射 / HP<40→舉盾 dash；Items：低 HP→undo / 視線內→射 + 繞切線 / 距離 3–7→放 trap；Territory：朝最近未佔領+偏邊緣的格走）。
-- **`socketHandlers.js`**：開頭 `io.use(authMiddleware)` 在 handshake 驗 JWT、查 blocklist、查 user.disabled，把 `socket.data.user` 寫進去；`MSG.JOIN` 不再吃 client 的 name/uuid，全部從 socket.data 取。connection 時 `hsetOnline`，disconnect 時 `hdelOnline`。
+- **`socketHandlers.js`**：開頭 `io.use(authMiddleware)` 在 handshake 驗 JWT、查 blocklist、查 user.disabled，把 `socket.data.user` 寫進去；`MSG.JOIN` 不再吃 client 的 name/uuid，全部從 socket.data 取。connection 時 `hsetOnline`，disconnect 時 `hdelOnline`。**INPUT 事件 in-memory 滑窗**：每 socket 每秒上限 90（30Hz × 3，給瞬間爆量 buffer），超過 silently drop 並一個 window 內 warn 一次（避免日誌洪水）。**INPUT payload 過 `sim.sanitizeInput`** 由 `Match.queueInput` 白名單化（拒絕 NaN/Infinity、enum 限白）。
 - **`prisma/schema.prisma`**：`User` (cuid + username unique + bcrypt passwordHash + role enum + disabled + createdById self-relation + lastLoginAt)、`Match`、`MatchParticipant`（userId 可為 null = bot）、`ChatMessage` (channel enum PUBLIC/DM + senderId + recipientId? + content varchar(500) + readAt?，PUBLIC 時 recipientId/readAt 永遠 null)。`prisma migrate dev --name <name>` 動 schema；`prisma migrate deploy` 給 prod；`db:seed` 在表空時建 `ADMIN_INITIAL_USERNAME/PASSWORD`。
 
 ### 未使用但保留（第二階段多房間預留）
