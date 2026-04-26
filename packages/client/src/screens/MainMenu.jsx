@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { MSG } from '@office-colosseum/shared';
+import { MSG, PLAYER_NAME_MAX } from '@office-colosseum/shared';
 import { getCurrentUser, updateDisplayName, isAdmin } from '../lib/auth.js';
-import { PLAYER_NAME_MAX } from '../lib/playerIdentity.js';
 import { getSocket } from '../net/socket.js';
 import SheetWindow from '../components/SheetWindow.jsx';
 

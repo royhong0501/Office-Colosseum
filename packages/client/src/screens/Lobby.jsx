@@ -332,6 +332,25 @@ export default function Lobby({ gameType, config, onMatchStart, onBack, gameName
                         —
                       </button>
                     )}
+                    {!isMe && !p.isBot && p.userId && (
+                      <button
+                        onClick={() => window.dispatchEvent(new CustomEvent('oc:open-dm', {
+                          detail: { userId: p.userId, displayName: p.displayName },
+                        }))}
+                        title={`私訊 ${p.displayName}`}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid var(--line-soft)',
+                          color: 'var(--ink-soft)',
+                          fontSize: 9,
+                          padding: '1px 5px',
+                          cursor: 'pointer',
+                          fontFamily: 'var(--font-mono)',
+                        }}
+                      >
+                        DM
+                      </button>
+                    )}
                   </div>
                 </div>
               );

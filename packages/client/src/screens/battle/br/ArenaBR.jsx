@@ -2,7 +2,7 @@
 // 靜態層：grid 線 + covers（合併儲存格深色塊）
 // 動態層：poison cells（紅底 + #REF!/#VALUE!/#NULL! 文字）、players（sprite + HP 條 + shield glow）、bullets（圓點 + trail）
 
-import { forwardRef } from 'react';
+import { forwardRef, memo, useMemo } from 'react';
 import {
   ARENA_COLS, ARENA_ROWS, PLAYER_RADIUS, PROJECTILE_RADIUS,
   SHIELD_ARC_HALF_RAD, SHIELD_MAX_HP,
@@ -12,23 +12,27 @@ import { CharacterSpriteSvg } from '../../../components/CharacterSprite.jsx';
 
 const POISON_LABELS = ['#REF!', '#VALUE!', '#NULL!'];
 
-const ArenaBR = forwardRef(function ArenaBR(
-  { map, players, bullets, poison, selfId, hurtIds, now },
+const ArenaBR = memo(forwardRef(function ArenaBR(
+  { map, players, bullets, poison, selfId, hurtIds },
   ref,
 ) {
-  const coverCells = [];
-  for (const [c, r, w, h] of map?.covers ?? []) {
-    coverCells.push(
-      <rect
-        key={`cv-${c}-${r}-${w}-${h}`}
-        x={c} y={r} width={w} height={h}
-        fill="var(--accent)"
-        opacity="0.78"
-        stroke="var(--line)"
-        strokeWidth={0.04}
-      />,
-    );
-  }
+  // covers 整場不變（map 切換才重算），鎖在 [map] 上避免每 tick 重建 rect 陣列
+  const coverCells = useMemo(() => {
+    const cells = [];
+    for (const [c, r, w, h] of map?.covers ?? []) {
+      cells.push(
+        <rect
+          key={`cv-${c}-${r}-${w}-${h}`}
+          x={c} y={r} width={w} height={h}
+          fill="var(--accent)"
+          opacity="0.78"
+          stroke="var(--line)"
+          strokeWidth={0.04}
+        />,
+      );
+    }
+    return cells;
+  }, [map]);
 
   const infectedCells = [];
   const severeSet = new Set(poison?.severe ?? []);
@@ -136,15 +140,13 @@ const ArenaBR = forwardRef(function ArenaBR(
         userSelect: 'none',
       }}
     >
-      {/* 格線 */}
-      <g>
-        {Array.from({ length: ARENA_COLS + 1 }).map((_, i) => (
-          <line key={`vl-${i}`} x1={i} x2={i} y1={0} y2={ARENA_ROWS} stroke="var(--line-soft)" strokeWidth={0.02} />
-        ))}
-        {Array.from({ length: ARENA_ROWS + 1 }).map((_, i) => (
-          <line key={`hl-${i}`} x1={0} x2={ARENA_COLS} y1={i} y2={i} stroke="var(--line-soft)" strokeWidth={0.02} />
-        ))}
-      </g>
+      {/* 格線 — pattern 化的 1×1 cell L 形，永遠 cache 不重建 */}
+      <defs>
+        <pattern id="grid-br" width={1} height={1} patternUnits="userSpaceOnUse">
+          <path d="M 1 0 L 0 0 L 0 1" fill="none" stroke="var(--line-soft)" strokeWidth={0.02} />
+        </pattern>
+      </defs>
+      <rect x={0} y={0} width={ARENA_COLS} height={ARENA_ROWS} fill="url(#grid-br)" />
       {/* covers */}
       {coverCells}
       {/* poison */}
@@ -155,6 +157,6 @@ const ArenaBR = forwardRef(function ArenaBR(
       {playerEls}
     </svg>
   );
-});
+}));
 
 export default ArenaBR;

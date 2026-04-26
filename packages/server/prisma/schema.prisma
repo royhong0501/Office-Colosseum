@@ -18,6 +18,11 @@ enum Role {
   PLAYER
 }
 
+enum ChatChannel {
+  PUBLIC
+  DM
+}
+
 model User {
   id           String   @id @default(cuid())
   username     String   @unique
@@ -32,8 +37,10 @@ model User {
   updatedAt    DateTime @updatedAt
   lastLoginAt  DateTime?
 
-  participants MatchParticipant[]
-  wonMatches   Match[]            @relation("Winner")
+  participants  MatchParticipant[]
+  wonMatches    Match[]            @relation("Winner")
+  sentChats     ChatMessage[]      @relation("ChatSender")
+  receivedChats ChatMessage[]      @relation("ChatRecipient")
 }
 
 model Match {
@@ -67,4 +74,20 @@ model MatchParticipant {
 
   @@index([userId])
   @@index([matchId])
+}
+
+model ChatMessage {
+  id          String      @id @default(cuid())
+  channel     ChatChannel
+  senderId    String
+  sender      User        @relation("ChatSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientId String?
+  recipient   User?       @relation("ChatRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  content     String      @db.VarChar(500)
+  createdAt   DateTime    @default(now())
+  readAt      DateTime?
+
+  @@index([channel, createdAt])
+  @@index([recipientId, readAt])
+  @@index([senderId, recipientId, createdAt])
 }

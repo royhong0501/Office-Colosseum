@@ -10,6 +10,7 @@ import { Match } from './match.js';
 import * as matchService from './services/matchService.js';
 import { verifyAndLoad } from './auth/middleware.js';
 import { hsetOnline, hdelOnline } from './services/presenceService.js';
+import { registerChatHandlers } from './chatHandlers.js';
 
 export function registerSocketHandlers(io) {
   // === handshake auth middleware ===
@@ -36,6 +37,7 @@ export function registerSocketHandlers(io) {
   io.on('connection', socket => {
     const user = socket.data.user;
     hsetOnline(user.id, socket.id).catch(() => {});
+    registerChatHandlers(io, socket);
 
     // JOIN 不再相信 client payload；身分一律從 socket.data.user 取
     socket.on(MSG.JOIN, () => lobby.join(socket.id, user));

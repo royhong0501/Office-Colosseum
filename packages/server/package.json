@@ -15,7 +15,7 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",
     "dev": "node --env-file-if-exists=.env --watch src/index.js",
-    "test": "node --test test/**/*.test.js",
+    "test": "node --env-file-if-exists=.env --test test/**/*.test.js",
     "smoke": "node --env-file=.env test/smoke.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

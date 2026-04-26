@@ -203,7 +203,6 @@ export default function BattleRoyale({ initialState, config, onEnd }) {
             poison={poison}
             selfId={selfId}
             hurtIds={hurtIds}
-            now={now}
           />
           {/* 飄字 overlay（HTML 層） */}
           <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>

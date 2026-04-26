@@ -5,7 +5,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { MSG, MAX_PLAYERS } from '@office-colosseum/shared';
 import { getSocket } from '../net/socket.js';
-import { getStoredPlayerName } from '../lib/playerIdentity.js';
+import { getCurrentUser } from '../lib/auth.js';
 import SheetWindow from '../components/SheetWindow.jsx';
 
 function fmtTime(ts) {
@@ -39,7 +39,7 @@ export default function RoomHall({ onEnterRoom, onBack }) {
   const [newRoomName, setNewRoomName] = useState('');
   const [errorMsg, setErrorMsg] = useState(null);
   const socket = getSocket();
-  const playerName = getStoredPlayerName() || 'Player';
+  const playerName = getCurrentUser()?.displayName || 'Player';
 
   useEffect(() => {
     const onRoomsList = (data) => setRooms(data?.rooms ?? []);

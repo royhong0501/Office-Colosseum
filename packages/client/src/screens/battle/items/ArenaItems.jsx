@@ -1,6 +1,6 @@
 // Items 戰場 SVG 渲染：18×9 格子 + traps + players + bullets + debuff 視覺。
 
-import { forwardRef } from 'react';
+import { forwardRef, memo } from 'react';
 import {
   ARENA_COLS, ARENA_ROWS, PLAYER_RADIUS, PROJECTILE_RADIUS,
 } from '@office-colosseum/shared/src/games/items/constants.js';
@@ -14,7 +14,7 @@ const TRAP_STYLE = {
   validate: { fill: '#f5f0c8', glyph: '▼', color: '#7a6830' },
 };
 
-const ArenaItems = forwardRef(function ArenaItems(
+const ArenaItems = memo(forwardRef(function ArenaItems(
   { players, bullets, traps, selfId, hurtIds, now },
   ref,
 ) {
@@ -89,20 +89,18 @@ const ArenaItems = forwardRef(function ArenaItems(
         cursor: 'crosshair', userSelect: 'none',
       }}
     >
-      {/* 格線 */}
-      <g>
-        {Array.from({ length: ARENA_COLS + 1 }).map((_, i) => (
-          <line key={`vl-${i}`} x1={i} x2={i} y1={0} y2={ARENA_ROWS} stroke="var(--line-soft)" strokeWidth={0.02} />
-        ))}
-        {Array.from({ length: ARENA_ROWS + 1 }).map((_, i) => (
-          <line key={`hl-${i}`} x1={0} x2={ARENA_COLS} y1={i} y2={i} stroke="var(--line-soft)" strokeWidth={0.02} />
-        ))}
-      </g>
+      {/* 格線 — pattern 化 */}
+      <defs>
+        <pattern id="grid-items" width={1} height={1} patternUnits="userSpaceOnUse">
+          <path d="M 1 0 L 0 0 L 0 1" fill="none" stroke="var(--line-soft)" strokeWidth={0.02} />
+        </pattern>
+      </defs>
+      <rect x={0} y={0} width={ARENA_COLS} height={ARENA_ROWS} fill="url(#grid-items)" />
       {trapEls}
       {bulletEls}
       {playerEls}
     </svg>
   );
-});
+}));
 
 export default ArenaItems;

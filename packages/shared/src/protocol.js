@@ -27,4 +27,18 @@ export const MSG = {
   // ---- 全站（跨 game）----
   GET_RECORDS: 'get_records',
   RECORDS: 'records',
+
+  // ---- 聊天（V1：全站公開頻道 + 1-on-1 私訊）----
+  CHAT_SEND: 'chat_send',                // C→S { channel: 'public'|'dm', recipientId?, content }
+  CHAT_MSG: 'chat_msg',                  // S→C 單則新訊息（公開廣播 / DM 投遞）
+  CHAT_HISTORY_REQ: 'chat_history_req',  // C→S { peerId?: string, before?: ISO, limit?: number }
+  CHAT_HISTORY_RES: 'chat_history_res',  // S→C { peerId?: string, messages: [...], hasMore }
+  CHAT_READ: 'chat_read',                // C→S { peerId } 標記與 peerId 之間所有 DM 已讀
+  CHAT_PRESENCE: 'chat_presence',        // S→C { online: [{userId, displayName}, ...] }
+  CHAT_UNREAD: 'chat_unread',            // S→C { byPeer: { [userId]: count } }
 };
+
+// ---- 聊天設定常數 ----
+export const CHAT_CONTENT_MAX = 500;          // 單則訊息最大字元數
+export const CHAT_RATE_LIMIT_MS = 1500;       // 同一使用者兩則訊息最短間隔
+export const CHAT_HISTORY_PAGE_SIZE = 50;     // 一次拉幾則歷史

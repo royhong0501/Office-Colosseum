@@ -14,11 +14,15 @@ import AdminPanel from './screens/AdminPanel.jsx';
 import { useBossKey } from './hooks/useBossKey.js';
 import { useSocketStatus } from './hooks/useSocketStatus.js';
 import ConnectionBanner from './components/ConnectionBanner.jsx';
+import ChatPanel from './components/ChatPanel.jsx';
 import { getSocket, reconnectSocket, disconnectSocket } from './net/socket.js';
 import { MSG } from '@office-colosseum/shared';
 import {
   isAuthed, isAdmin, refreshMe, getCurrentUser, logout as authLogout,
 } from './lib/auth.js';
+
+const CHAT_OPEN_KEY = 'oc.chat.open';
+const SCREENS_WITHOUT_CHAT = new Set(['auth', 'battle', 'gameover']);
 
 // 多遊戲平台 screen 流程：
 //   auth → menu → modeSelect → [mapSelect (BR only)] → lobby → battle → gameover
@@ -59,6 +63,14 @@ export default function App() {
   const [matchEnd, setMatchEnd] = useState(null);
   const [gameType, setGameType] = useState(null);
   const [config, setConfig] = useState({});
+  const [chatOpen, setChatOpen] = useState(() => {
+    const v = localStorage.getItem(CHAT_OPEN_KEY);
+    return v == null ? true : v === '1';
+  });
+  const setChatOpenPersist = (v) => {
+    setChatOpen(v);
+    try { localStorage.setItem(CHAT_OPEN_KEY, v ? '1' : '0'); } catch {}
+  };
 
   const handleLogout = async () => {
     await authLogout();
@@ -140,12 +152,21 @@ export default function App() {
     );
   }
 
+  const showChat = !SCREENS_WITHOUT_CHAT.has(screen);
+
   return (
     <>
       {hidden && <BossKey />}
       <ConnectionBanner status={connStatus} />
       <div style={{ visibility: hidden ? 'hidden' : 'visible', height: '100%' }}>
-        {content}
+        {showChat ? (
+          <div style={{ display: 'flex', height: '100vh', width: '100%' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {content}
+            </div>
+            <ChatPanel open={chatOpen} onToggle={setChatOpenPersist} />
+          </div>
+        ) : content}
       </div>
     </>
   );

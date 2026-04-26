@@ -167,6 +167,86 @@ packages/
 | S→C | `snapshot` | `{ tick, players, events }` |
 | S→C | `match_end` | `{ winnerId, summary }` |
 
+## 部署到 fly.io
+
+正式環境跑在 **fly.io**（東京 `nrt`），DB 走 **Supabase Free**、Redis 走 **Upstash Free**。所有敏感參數透過 `fly secrets set` 注入，不寫進 `fly.toml`。
+
+### 一次性設定
+
+**1. Supabase Postgres**
+
+到 [supabase.com](https://supabase.com) 建 project（region 選 `ap-northeast-1` 與 fly app 同區）。
+
+Project settings → Database → **Connection string → Session pooler**（**不要** Direct，Free plan 是 IPv6-only fly 連不到；也不要 Transaction Pooler 6543，prisma migrate 不支援）。URL 格式：
+
+```
+postgresql://postgres.<project-ref>:<password>@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres?sslmode=require
+```
+
+如果密碼含 `?` `*` `,` `@` 等特殊字元，要 URL encode（`?` → `%3F`、`*` → `%2A`、`,` → `%2C`、`@` → `%40`）；建議直接重設成 alphanumeric+`_` 省事。
+
+**2. Upstash Redis**
+
+到 [upstash.com](https://upstash.com) 建 Redis：Type 選 **Regional** + Tokyo region。Database 頁面抓 `rediss://` 那條（TLS）：
+
+```
+rediss://default:<password>@<endpoint>.upstash.io:6379
+```
+
+**3. fly app + secrets**
+
+```bash
+fly launch --no-deploy        # 第一次：吃 fly.toml、不要 fly 自動建 DB
+fly secrets set \
+  DATABASE_URL='postgresql://postgres.xxx:xxx@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres?sslmode=require' \
+  REDIS_URL='rediss://default:xxx@xxx.upstash.io:6379' \
+  JWT_SECRET='至少 16 字的隨機字串' \
+  ADMIN_INITIAL_USERNAME='admin' \
+  ADMIN_INITIAL_PASSWORD='你要的初始密碼'
+fly deploy
+```
+
+PowerShell 設 secret 用單引號避免 `$` `&` 被 shell 吃掉。
+
+### 後續更新
+
+```bash
+fly deploy           # 重新 build + 推 image
+fly logs             # 即時看 server log
+fly status           # machine 健康狀態
+fly ssh console      # 進 container 抓 env、跑 prisma 工具
+fly secrets list     # 列目前 secrets（值不顯示）
+fly secrets unset KEY   # 移除某個 secret
+```
+
+`fly secrets set` 只有在 app 已 deploy 過、有 running machine 時才會自動 redeploy；第一次設或 machine 全停要手動 `fly deploy`。
+
+### Migrate / Seed
+
+`Dockerfile` 的 `CMD` 已串好：每次 deploy 都會跑 `prisma migrate deploy && db:seed || true; node packages/server/src/index.js`，意即 migrate / seed 失敗也不會擋 server 起。
+
+如果要手動對著 prod DB 跑 migrate（schema 變更）：
+
+```bash
+$env:DATABASE_URL = 'postgresql://...prod URL...'    # PowerShell
+# bash: export DATABASE_URL='postgresql://...'
+npx --workspace @office-colosseum/server prisma migrate deploy
+```
+
+⚠ Prisma 的 `dotenv` 是**非覆寫**：若 `.env` 也有 DATABASE_URL（指向本機 docker postgres），它會蓋掉你 `$env:` 設的 prod URL。先把 `.env` 改名或 unset 才安全。
+
+### 常見坑
+
+- **502 Bad Gateway / `libssl.so.1.1: not found`** — Prisma + Alpine OpenSSL 不對齊。`schema.prisma` 必須有 `binaryTargets = ["native", "linux-musl-openssl-3.0.x"]`，且 `Dockerfile` 兩個 stage 都要 `RUN apk add --no-cache openssl`。
+- **P1001 Can't reach database** — 用了 Supabase Direct Connection（IPv6-only），改用 Session Pooler。
+- **P1000 Authentication failed for `postgres`** — 連 pooler 時 username 要寫 `postgres.<project-ref>`（含點），不是純 `postgres`。
+- **P1013 invalid port** / **P1012 URL must start with postgresql://** — 密碼含特殊字元未 encode、或 fly secret 不小心被前綴成 `DATABASE_URL=DATABASE_URL=...`。SSH 進 container `echo $DATABASE_URL` 確認。
+- **Redeploy log 有 migrate 錯誤但網站正常** — 正常。Dockerfile CMD 用 `; node ...` 串接，migrate 失敗會被 `|| true` 吞掉、node server 仍會起。
+
+詳細排錯與規範見 `CLAUDE.md` 的「雲端部署」與「部署相關地雷」段落。
+
+---
+
 ## 已知限制
 
 - 沒有 client-side prediction — 低延遲區網下體感良好，WAN 上會有明顯 lag
