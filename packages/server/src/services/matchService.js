@@ -4,6 +4,7 @@
 
 import { getPrisma } from '../db/prisma.js';
 import { invalidateLeaderboard } from './leaderboardCache.js';
+import { get as getRecordsCache, invalidateRecords } from './recordsCache.js';
 
 export const MIN_REAL_PLAYERS = 2;
 
@@ -45,12 +46,20 @@ export async function recordMatch({ gameType, config, startedAt, endedAt, partic
     return m;
   });
 
-  await invalidateLeaderboard().catch(() => {});
+  await Promise.all([
+    invalidateLeaderboard().catch(() => {}),
+    invalidateRecords().catch(() => {}),
+  ]);
   return { ok: true, matchId: match.id };
 }
 
 // 給 client GET_RECORDS 用：回個人聚合 + 最近 N 場（限制不再嚴格只有 10 場）。
+// 走 30s Redis cache（recordMatch 完成後 invalidate）。
 export async function getSnapshot({ recentLimit = 20 } = {}) {
+  return getRecordsCache(recentLimit, _buildSnapshotFromDb);
+}
+
+async function _buildSnapshotFromDb(recentLimit) {
   const prisma = getPrisma();
   const matches = await prisma.match.findMany({
     orderBy: { endedAt: 'desc' },

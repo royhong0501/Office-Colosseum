@@ -40,5 +40,5 @@ export const MSG = {
 
 // ---- 聊天設定常數 ----
 export const CHAT_CONTENT_MAX = 500;          // 單則訊息最大字元數
-export const CHAT_RATE_LIMIT_MS = 1500;       // 同一使用者兩則訊息最短間隔
+export const CHAT_RATE_LIMIT_SEC = 2;         // 同一使用者兩則訊息最短間隔（秒；Redis EXPIRE 為秒粒度）
 export const CHAT_HISTORY_PAGE_SIZE = 50;     // 一次拉幾則歷史

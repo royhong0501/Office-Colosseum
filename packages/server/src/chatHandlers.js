@@ -6,7 +6,7 @@
 // 同 process 內已掌握全部資訊，比較直接也避免一次 query。
 
 import { MSG } from '@office-colosseum/shared';
-import * as chatService from './services/chatService.js';
+import * as defaultChatService from './services/chatService.js';
 import { ChatValidationError } from './services/chatService.js';
 import { RateLimitError } from './services/rateLimiter.js';
 
@@ -29,7 +29,9 @@ function replyChatError(socket, code) {
   socket.emit(MSG.ERROR, { code, msg: code });
 }
 
-export function registerChatHandlers(io, socket) {
+// 可以注入 chatService（給測試 stub 用）；正式環境用 defaultChatService。
+export function registerChatHandlers(io, socket, deps = {}) {
+  const chatService = deps.chatService ?? defaultChatService;
   const user = socket.data.user;
   if (!user) return;
 

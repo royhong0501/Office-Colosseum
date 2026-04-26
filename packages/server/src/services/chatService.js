@@ -4,7 +4,7 @@
 
 import { getPrisma } from '../db/prisma.js';
 import { consume, RateLimitError } from './rateLimiter.js';
-import { CHAT_CONTENT_MAX, CHAT_RATE_LIMIT_MS, CHAT_HISTORY_PAGE_SIZE } from '@office-colosseum/shared';
+import { CHAT_CONTENT_MAX, CHAT_RATE_LIMIT_SEC, CHAT_HISTORY_PAGE_SIZE } from '@office-colosseum/shared';
 
 export class ChatValidationError extends Error {
   constructor(code) { super(code); this.code = code; }
@@ -26,9 +26,8 @@ function toWireMessage(row) {
   };
 }
 
-// rate limit：每 user CHAT_RATE_LIMIT_MS 內最多 1 則
-// rateLimiter 以「秒」為視窗單位 → CHAT_RATE_LIMIT_MS / 1000
-const RATE_WINDOW_SEC = Math.max(1, Math.ceil(CHAT_RATE_LIMIT_MS / 1000));
+// rate limit：每 user CHAT_RATE_LIMIT_SEC 秒內最多 1 則。
+// rateLimiter / Redis EXPIRE 都是「秒」粒度，所以常數直接用秒。
 
 export async function sendMessage({ senderId, channel, recipientId, content }) {
   // 1) 驗 channel
@@ -52,7 +51,7 @@ export async function sendMessage({ senderId, channel, recipientId, content }) {
   }
 
   // 4) rate limit（throws RateLimitError）
-  await consume({ key: `chat:${senderId}`, limit: 1, windowSec: RATE_WINDOW_SEC });
+  await consume({ key: `chat:${senderId}`, limit: 1, windowSec: CHAT_RATE_LIMIT_SEC });
 
   // 5) 寫入
   const row = await getPrisma().chatMessage.create({
