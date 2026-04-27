@@ -5,7 +5,7 @@ dist/
 .vite/
 docs/*
 !docs/superpowers/
-
+docs
 # Server data / Prisma
 packages/server/data/
 packages/server/.env
