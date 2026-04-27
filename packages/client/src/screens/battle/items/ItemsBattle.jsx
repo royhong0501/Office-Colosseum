@@ -212,7 +212,7 @@ export default function ItemsBattle({ initialState, config, onEnd, readOnly = fa
         />
       </div>
       {/* hold T 顯示的 emote bar — position: fixed 自己 escape SheetWindow layout */}
-      <EmoteBar open={emoteOpen} cooldownUntil={selfCooldownUntil} />
+      <EmoteBar open={emoteOpen && !readOnly} cooldownUntil={selfCooldownUntil} />
     </SheetWindow>
   );
 }

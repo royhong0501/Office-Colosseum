@@ -166,7 +166,7 @@ export default function TerritoryBattle({ initialState, config, onEnd, readOnly 
           now={now}
         />
       </div>
-      <EmoteBar open={emoteOpen} cooldownUntil={selfCooldownUntil} />
+      <EmoteBar open={emoteOpen && !readOnly} cooldownUntil={selfCooldownUntil} />
     </SheetWindow>
   );
 }
