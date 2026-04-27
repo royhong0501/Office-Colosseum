@@ -1,8 +1,13 @@
 FROM node:22-alpine
+
+# 安裝 Prisma 在 Alpine 環境下運行必備的函式庫
+# openssl: 資料庫連線加密需要
+# libc6-compat: 讓 Prisma 引擎能在 Alpine 的 musl 環境模擬 glibc 運行
+RUN apk add --no-cache openssl libc6-compat
+
 WORKDIR /app
 
-# Copy package manifests only — dependency install layer is cached
-# until any package.json changes.
+# Copy package manifests
 COPY package.json package-lock.json ./
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/server/package.json ./packages/server/
@@ -10,4 +15,4 @@ COPY packages/client/package.json ./packages/client/
 
 RUN npm ci
 
-# Source is bind-mounted via docker-compose at runtime — no COPY here.
+# Source is bind-mounted via docker-compose at runtime
