@@ -6,12 +6,13 @@ import {
 } from '@office-colosseum/shared/src/games/territory/constants.js';
 import { getCharacterById } from '@office-colosseum/shared';
 import { CharacterSpriteSvg } from '../../../components/CharacterSprite.jsx';
+import EmoteBubble from '../../../components/EmoteBubble.jsx';
 import {
   useRafTick, useTrackSnapshot, lerpT, interpolateMap,
 } from '../../../hooks/useInterpolation.js';
 
 const ArenaTerritory = memo(forwardRef(function ArenaTerritory(
-  { teams, players, cells, selfId },
+  { teams, players, cells, selfId, activeEmotes = {} },
   ref,
 ) {
   // 60Hz 補幀，只補 players（cells 是 server 增量更新的塗色，不需 lerp）
@@ -77,6 +78,19 @@ const ArenaTerritory = memo(forwardRef(function ArenaTerritory(
       <rect x={0} y={0} width={ARENA_COLS} height={ARENA_ROWS} fill="url(#grid-territory)" />
       {cellEls}
       {playerEls}
+      {/* emote bubbles（最上層） */}
+      {Object.entries(activeEmotes).map(([pid, e]) => {
+        const p = renderPlayers?.[pid];
+        if (!p) return null;
+        return (
+          <EmoteBubble
+            key={`emote-${pid}-${e.startedAt}`}
+            x={p.x}
+            y={p.y}
+            slot={e.slot}
+          />
+        );
+      })}
     </svg>
   );
 }));

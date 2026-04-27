@@ -2,11 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { getSocket } from '../../../net/socket.js';
-import { MSG, TICK_MS, getCharacterById } from '@office-colosseum/shared';
+import { MSG, TICK_MS, EMOTE_CD_MS, getCharacterById } from '@office-colosseum/shared';
 import SheetWindow from '../../../components/SheetWindow.jsx';
 import ArenaTerritory from './ArenaTerritory.jsx';
 import BattleHudTerritory from './BattleHudTerritory.jsx';
 import { useInputTerritory } from './useInputTerritory.js';
+import { useEmoteInput } from '../useEmoteInput.js';
+import { useEmoteFeed } from '../useEmoteFeed.js';
+import EmoteBar from '../../../components/EmoteBar.jsx';
 
 const LOG_LIMIT = 10;
 
@@ -32,14 +35,24 @@ export default function TerritoryBattle({ initialState, config, onEnd, readOnly 
   }, []);
 
   const readInput = useInputTerritory();
+  const { emoteOpen, consume: consumeEmote } = useEmoteInput();
+  const activeEmotes = useEmoteFeed();
+  const [selfCooldownUntil, setSelfCooldownUntil] = useState(0);
   useEffect(() => {
     if (readOnly) return undefined;
     const id = setInterval(() => {
       if (phase !== 'playing') return;
-      try { socket.emit(MSG.INPUT, readInput()); } catch (e) { /* ignore */ }
+      try {
+        const baseInput = readInput();
+        const emote = consumeEmote();
+        if (emote != null && Date.now() >= selfCooldownUntil) {
+          setSelfCooldownUntil(Date.now() + EMOTE_CD_MS);
+        }
+        socket.emit(MSG.INPUT, { ...baseInput, emote });
+      } catch (e) { /* ignore */ }
     }, TICK_MS);
     return () => clearInterval(id);
-  }, [phase, readInput, socket, readOnly]);
+  }, [phase, readInput, socket, readOnly, consumeEmote, selfCooldownUntil]);
 
   useEffect(() => {
     const onSnapshot = (snap) => {
@@ -123,6 +136,7 @@ export default function TerritoryBattle({ initialState, config, onEnd, readOnly 
             players={players}
             cells={cells}
             selfId={selfId}
+            activeEmotes={activeEmotes}
           />
           {/* 戰鬥 log */}
           <div style={{
@@ -152,6 +166,7 @@ export default function TerritoryBattle({ initialState, config, onEnd, readOnly 
           now={now}
         />
       </div>
+      <EmoteBar open={emoteOpen} cooldownUntil={selfCooldownUntil} />
     </SheetWindow>
   );
 }
