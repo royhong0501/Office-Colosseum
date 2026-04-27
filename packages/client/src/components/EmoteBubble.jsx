@@ -21,19 +21,17 @@ export default function EmoteBubble({ x, y, slot }) {
     <g transform={`translate(${x}, ${y - 0.85})`}>
       <g style={{
         animation: 'emoteBubbleFloat 2.5s ease-out forwards',
-        transformOrigin: 'center',
       }}>
         {/* 白色描邊 + 黑字，視覺上像是白底黑邊 */}
         <text
           textAnchor="middle"
           dominantBaseline="middle"
-          fontFamily="var(--font-mono, monospace)"
           fontSize="0.42"
           fill="var(--ink, #1a1a1a)"
           stroke="var(--bg-paper, #ffffff)"
           strokeWidth="0.12"
           paintOrder="stroke"
-          style={{ userSelect: 'none' }}
+          style={{ fontFamily: 'var(--font-mono, monospace)', userSelect: 'none' }}
         >
           {emote.kaomoji}
         </text>
