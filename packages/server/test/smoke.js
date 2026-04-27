@@ -71,19 +71,31 @@ try {
 
   const a = ioClient(URL, { auth: { token: tokenA } });
   const b = ioClient(URL, { auth: { token: tokenB } });
-  let lobbyUpdates = 0, matchStarted = false;
+  let lobbyUpdates = 0, matchStarted = false, emoteSeen = false;
 
   a.on('connect_error', e => done('a connect: ' + e.message));
   b.on('connect_error', e => done('b connect: ' + e.message));
   a.on(MSG.LOBBY_STATE, () => lobbyUpdates++);
+  a.on(MSG.SNAPSHOT, (snap) => {
+    if (snap?.events?.some(e => e && e.kind === 'emote' && e.slot === 6)) {
+      emoteSeen = true;
+    }
+  });
   a.on(MSG.MATCH_START, () => {
     matchStarted = true;
+    // match_start 後 100ms 送一個帶 emote: 6 的 INPUT，驗證 emote 端到端傳到 SNAPSHOT events
     setTimeout(() => {
-      if (lobbyUpdates < 4) return done('expected lobby updates, got ' + lobbyUpdates);
-      if (!matchStarted) return done('no match_start');
-      pass = true;
-      done();
-    }, 200);
+      a.emit(MSG.INPUT, {
+        seq: 1,
+        moveX: 0,
+        moveY: 0,
+        aimAngle: 0,
+        attack: false,
+        shield: false,
+        dash: false,
+        emote: 6,
+      });
+    }, 100);
   });
 
   await new Promise(r => a.on('connect', r));
@@ -97,6 +109,15 @@ try {
     b.emit(MSG.READY, { ready: true });
     setTimeout(() => a.emit(MSG.START, {}), 100);
   }, 200);
+
+  // 拉長最終驗收 timeout 給 emote 場景時間（match_start 後 100ms 送 INPUT，再等 SNAPSHOT 廣播）
+  setTimeout(() => {
+    if (lobbyUpdates < 4) return done('expected lobby updates, got ' + lobbyUpdates);
+    if (!matchStarted) return done('no match_start');
+    if (!emoteSeen) return done('emote event 未在 SNAPSHOT 內收到');
+    pass = true;
+    done();
+  }, 1500);
 
   setTimeout(() => done('timeout — match_start never fired'), 5000);
 } catch (e) {
