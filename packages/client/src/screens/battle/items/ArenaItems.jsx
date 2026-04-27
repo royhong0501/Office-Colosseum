@@ -115,7 +115,7 @@ const ArenaItems = memo(forwardRef(function ArenaItems(
       {playerEls}
       {/* emote bubbles（最上層） */}
       {Object.entries(activeEmotes).map(([pid, e]) => {
-        const p = renderPlayers?.[pid] ?? players?.[pid];
+        const p = renderPlayers?.[pid];
         if (!p) return null;
         return (
           <EmoteBubble
