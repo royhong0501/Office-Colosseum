@@ -89,6 +89,17 @@ export function buildAuthRouter() {
     res.json({ id: u.id, username: u.username, role: u.role, displayName: u.displayName });
   });
 
+  // 給 chat dock 左側用：列出所有未停用的使用者（簡化版，不含 password / role 等敏感欄位）
+  router.get('/users', requireAuth, async (_req, res) => {
+    const users = await getPrisma().user.findMany({
+      where: { disabled: false },
+      select: { id: true, username: true, displayName: true },
+      orderBy: { displayName: 'asc' },
+      take: 500,
+    });
+    res.json({ users });
+  });
+
   router.patch('/me', requireAuth, async (req, res) => {
     const parsed = updateMeSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'bad_input' });

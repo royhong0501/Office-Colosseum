@@ -491,3 +491,30 @@ export function buildMatchStartPayload(state, config) {
     },
   };
 }
+
+/**
+ * SPECTATE_INIT — 觀戰者中途加入時推送一次當前完整 state。
+ * 跟 buildMatchStartPayload 形狀相同，但 poison.infected/severe 是「當前狀態」而非空集合，
+ * 讓 client 可以即時渲染已經受汙染的格子。後續仍走 SNAPSHOT delta 增量。
+ */
+export function buildSpectatorInitPayload(state, config) {
+  return {
+    gameType: GAME_ID,
+    config,
+    state: {
+      ...state,
+      map: {
+        id: state.map.id,
+        name: state.map.name,
+        covers: state.map.covers,
+        spawns: state.map.spawns,
+      },
+      poison: {
+        infected: [...state.poison.infected],
+        severe: [...state.poison.severe],
+        nextWaveAtMs: state.poison.nextWaveAtMs,
+        waveCount: state.poison.waveCount,
+      },
+    },
+  };
+}

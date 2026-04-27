@@ -12,7 +12,7 @@ import { useInputItems } from './useInputItems.js';
 
 const LOG_LIMIT = 12;
 
-export default function ItemsBattle({ initialState, config, onEnd }) {
+export default function ItemsBattle({ initialState, config, onEnd, readOnly = false }) {
   const socket = getSocket();
   const selfId = socket.id;
 
@@ -39,6 +39,7 @@ export default function ItemsBattle({ initialState, config, onEnd }) {
 
   const readInput = useInputItems(arenaRef, selfPosRef);
   useEffect(() => {
+    if (readOnly) return undefined;
     const id = setInterval(() => {
       if (phase !== 'playing' || tutorialOpen) return;
       try {
@@ -47,7 +48,7 @@ export default function ItemsBattle({ initialState, config, onEnd }) {
       } catch (e) { /* ignore */ }
     }, TICK_MS);
     return () => clearInterval(id);
-  }, [phase, tutorialOpen, readInput, socket]);
+  }, [phase, tutorialOpen, readInput, socket, readOnly]);
 
   useEffect(() => {
     const onSnapshot = (snap) => {

@@ -29,8 +29,8 @@ export class Match {
       isBot: !!p.isBot,
     }));
     this.startedAtMs = Date.now();
-    // 廣播 scope 限縮在這個 room；start() 時把玩家 socket join 進來、end() 全踢
-    this.roomId = `match-${this.startedAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    // 廣播 scope 由 caller 決定：傳進來的 io 已經是 io.to(roomId) 的 BroadcastOperator
+    // （Room.scope），this.io.emit() 自然只發給該 room 的 socket。Match 自己不需 join socket。
     this.state = game.sim.createInitialState(this.players, this.config, this.startedAtMs);
     this.inputs = new Map();
     this.interval = null;
@@ -45,13 +45,8 @@ export class Match {
   }
 
   start() {
-    // 把所有非 bot 玩家的 socket 都 join 進 match room
-    for (const p of this.players) {
-      if (p.isBot) continue;
-      this.io.sockets.sockets.get(p.id)?.join(this.roomId);
-    }
     const payload = this.game.sim.buildMatchStartPayload(this.state, this.config);
-    this.io.to(this.roomId).emit(MSG.MATCH_START, payload);
+    this.io.emit(MSG.MATCH_START, payload);
     this.interval = setInterval(() => this.tick(Date.now()), TICK_MS);
   }
 
@@ -97,7 +92,7 @@ export class Match {
     }
     this._accumulateEvents(newEvents);
 
-    this.io.to(this.roomId).emit(MSG.SNAPSHOT, sim.buildSnapshotPayload(state, newEvents));
+    this.io.emit(MSG.SNAPSHOT, sim.buildSnapshotPayload(state, newEvents));
 
     if (state.phase === 'ended' || sim.aliveCount(state) <= 1) this.end();
   }
@@ -243,14 +238,22 @@ export class Match {
       console.warn('[match] recordMatch failed, enqueueing fallback:', err.message);
       enqueueMatchFallback(recordPayload);
     });
-    this.io.to(this.roomId).emit(MSG.MATCH_END, { winnerId, summary: this.stats });
-    // 把所有 socket 踢出 room（不影響 socket 連線本身，下一場 match 會用新 roomId）
-    this.io.in(this.roomId).socketsLeave(this.roomId);
+    this.io.emit(MSG.MATCH_END, { winnerId, summary: this.stats });
     if (this.onEnd) this.onEnd();
   }
 
   setPaused(playerId, paused) {
     if (this.state.players[playerId]) this.state.players[playerId].paused = paused;
+  }
+
+  /** 給觀戰者中途加入時的「當前 state」snapshot；下游用 game.sim.buildSpectatorInitPayload */
+  getSpectatorInitPayload() {
+    const sim = this.game.sim;
+    if (typeof sim.buildSpectatorInitPayload !== 'function') {
+      // 後備：用 buildMatchStartPayload（territory/items 等 state 簡單者皆可）
+      return sim.buildMatchStartPayload(this.state, this.config);
+    }
+    return sim.buildSpectatorInitPayload(this.state, this.config);
   }
 }
 

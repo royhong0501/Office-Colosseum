@@ -7,7 +7,20 @@ export const GAME_TYPES = ['battle-royale', 'items', 'territory'];
 export const DEFAULT_GAME_TYPE = 'battle-royale';
 
 export const MSG = {
-  // ---- 房內 / 大廳控制 ----
+  // ---- 大廳（多房列表）----
+  LIST_ROOMS: 'list_rooms',             // C→S 主動拉一次房間列表
+  ROOMS_LIST: 'rooms_list',             // S→C { rooms: [summary, ...] }
+  CREATE_ROOM: 'create_room',           // C→S { roomName, mode, mapId?, capacity, isPrivate, password? }
+  JOIN_ROOM: 'join_room',               // C→S { roomId, password? }
+  LEAVE_ROOM: 'leave_room',             // C→S 離開目前房間（未在 match 中）
+  ROOM_JOINED: 'room_joined',           // S→C { roomId, roomName, mode, mapId? }
+
+  // ---- 觀戰 ----
+  SPECTATE_ROOM: 'spectate_room',       // C→S { roomId }
+  SPECTATE_INIT: 'spectate_init',       // S→C { gameType, config, state } 中途加入用
+  SPECTATE_LEAVE: 'spectate_leave',     // C→S 離開觀戰
+
+  // ---- 房內 / 對戰 ----
   JOIN: 'join',
   LOBBY_STATE: 'lobby_state',          // payload 帶 gameType、mapId、players
   PICK: 'pick_character',
@@ -28,14 +41,17 @@ export const MSG = {
   GET_RECORDS: 'get_records',
   RECORDS: 'records',
 
-  // ---- 聊天（V1：全站公開頻道 + 1-on-1 私訊）----
-  CHAT_SEND: 'chat_send',                // C→S { channel: 'public'|'dm', recipientId?, content }
-  CHAT_MSG: 'chat_msg',                  // S→C 單則新訊息（公開廣播 / DM 投遞）
-  CHAT_HISTORY_REQ: 'chat_history_req',  // C→S { peerId?: string, before?: ISO, limit?: number }
-  CHAT_HISTORY_RES: 'chat_history_res',  // S→C { peerId?: string, messages: [...], hasMore }
-  CHAT_READ: 'chat_read',                // C→S { peerId } 標記與 peerId 之間所有 DM 已讀
-  CHAT_PRESENCE: 'chat_presence',        // S→C { online: [{userId, displayName}, ...] }
+  // ---- 聊天 ----
+  // channel: 'public' / 'announce' / 'room' / 'dm'
+  CHAT_SEND: 'chat_send',                // C→S { channel, recipientId?, roomId?, content, replyToId? }
+  CHAT_MSG: 'chat_msg',                  // S→C 單則新訊息（廣播到對應 room）
+  CHAT_HISTORY_REQ: 'chat_history_req',  // C→S { channel, peerId?, roomId?, before?, limit? }
+  CHAT_HISTORY_RES: 'chat_history_res',  // S→C { channel, peerId?, roomId?, messages, hasMore }
+  CHAT_READ: 'chat_read',                // C→S DM: { peerId } / ROOM/ANNOUNCE: { messageId }
+  CHAT_PRESENCE: 'chat_presence',        // S→C { users: [{userId, displayName, status}, ...] }
   CHAT_UNREAD: 'chat_unread',            // S→C { byPeer: { [userId]: count } }
+  CHAT_MENTION_NOTIFY: 'chat_mention_notify', // S→C { messageId, channel, roomId?, senderName, content } 給被提及方
+  CHAT_MSG_READ_UPDATE: 'chat_msg_read_update', // S→C { messageId, count } 給原發訊者，更新「已讀 N」
 };
 
 // ---- 聊天設定常數 ----

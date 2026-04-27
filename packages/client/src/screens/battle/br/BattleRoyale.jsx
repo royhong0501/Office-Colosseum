@@ -11,7 +11,7 @@ import { useInputBR } from './useInputBR.js';
 
 const LOG_LIMIT = 12;
 
-export default function BattleRoyale({ initialState, config, onEnd }) {
+export default function BattleRoyale({ initialState, config, onEnd, readOnly = false }) {
   const socket = getSocket();
   const selfId = socket.id;
 
@@ -45,9 +45,10 @@ export default function BattleRoyale({ initialState, config, onEnd }) {
     return () => clearInterval(id);
   }, []);
 
-  // 輸入
+  // 輸入（觀戰模式不送）
   const readInput = useInputBR(arenaRef, selfPosRef);
   useEffect(() => {
+    if (readOnly) return undefined;
     const id = setInterval(() => {
       if (phase !== 'playing') return;
       try {
@@ -56,7 +57,7 @@ export default function BattleRoyale({ initialState, config, onEnd }) {
       } catch (e) { /* ignore */ }
     }, TICK_MS);
     return () => clearInterval(id);
-  }, [phase, readInput, socket]);
+  }, [phase, readInput, socket, readOnly]);
 
   // 訂閱 SNAPSHOT / MATCH_END
   useEffect(() => {
