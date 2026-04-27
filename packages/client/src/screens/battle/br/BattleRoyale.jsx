@@ -18,6 +18,9 @@ export default function BattleRoyale({ initialState, config, onEnd }) {
   // server state（每 tick 被 snapshot 覆寫）
   const [players, setPlayers] = useState(initialState?.state?.players ?? {});
   const [bullets, setBullets] = useState(initialState?.state?.bullets ?? []);
+  // poison: server 不再每 tick 全送 infected/severe（會把 SNAPSHOT 撐到 5-10 KB）。
+  // client 維護本地 infected/severe array，根據 poison_wave events 增量加進來。
+  // nextWaveAtMs / waveCount 仍從 snapshot 拿（HUD 倒數用）。
   const [poison, setPoison] = useState(() => ({
     infected: initialState?.state?.poison?.infected ?? [],
     severe: initialState?.state?.poison?.severe ?? [],
@@ -61,7 +64,14 @@ export default function BattleRoyale({ initialState, config, onEnd }) {
       setTick(snap.tick);
       setPlayers(snap.players ?? {});
       setBullets(snap.bullets ?? []);
-      if (snap.poison) setPoison(snap.poison);
+      // snap.poison 只帶 nextWaveAtMs / waveCount；infected / severe 由本地 events 增量維護
+      if (snap.poison) {
+        setPoison(prev => ({
+          ...prev,
+          nextWaveAtMs: snap.poison.nextWaveAtMs ?? prev.nextWaveAtMs,
+          waveCount: snap.poison.waveCount ?? prev.waveCount,
+        }));
+      }
       if (snap.phase) setPhase(snap.phase);
       // 更新 selfPosRef（供 aim 計算）
       const me = snap.players?.[selfId];
@@ -167,6 +177,29 @@ export default function BattleRoyale({ initialState, config, onEnd }) {
           pushLog(`=SPREAD(wave=${e.waveCount}, cells=${e.newCells?.length ?? 0})`);
           setPoisonWaveBanner({ id: Date.now(), wave: e.waveCount });
           setTimeout(() => setPoisonWaveBanner(null), 1800);
+          // 增量更新本地 infected / severe
+          setPoison(prev => {
+            const next = { ...prev };
+            if (Array.isArray(e.newCells) && e.newCells.length) {
+              const seen = new Set(prev.infected);
+              const added = [];
+              for (const [c, r] of e.newCells) {
+                const k = `${c},${r}`;
+                if (!seen.has(k)) { seen.add(k); added.push(k); }
+              }
+              if (added.length) next.infected = [...prev.infected, ...added];
+            }
+            if (Array.isArray(e.newSevere) && e.newSevere.length) {
+              const seen = new Set(prev.severe);
+              const added = [];
+              for (const [c, r] of e.newSevere) {
+                const k = `${c},${r}`;
+                if (!seen.has(k)) { seen.add(k); added.push(k); }
+              }
+              if (added.length) next.severe = [...prev.severe, ...added];
+            }
+            return next;
+          });
           break;
         }
         default:

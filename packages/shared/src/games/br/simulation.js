@@ -388,6 +388,8 @@ function advancePoison(state, now, rng) {
   state.poison.waveCount += 1;
   state.poison.nextWaveAtMs = now + POISON_WAVE_INTERVAL_MS;
   const newCells = [];
+  // 該波新升級為 severe 的格子（給 client 增量更新本地 severe set 用）
+  const newSevere = [];
 
   if (state.poison.waveCount === 1) {
     // 第 1 波：四邊各以 0.6 機率汙染
@@ -420,11 +422,16 @@ function advancePoison(state, now, rng) {
     for (const k of state.poison.infected) {
       if (severeAdded >= 30) break;
       if (state.poison.severe.has(k)) continue;
-      if (rng() < 0.15) { state.poison.severe.add(k); severeAdded++; }
+      if (rng() < 0.15) {
+        state.poison.severe.add(k);
+        const [sc, sr] = k.split(',').map(Number);
+        newSevere.push([sc, sr]);
+        severeAdded++;
+      }
     }
   }
 
-  state.events.push({ type: 'poison_wave', waveCount: state.poison.waveCount, newCells });
+  state.events.push({ type: 'poison_wave', waveCount: state.poison.waveCount, newCells, newSevere });
 }
 
 /* ---- Queries ------------------------------------------------- */
@@ -442,7 +449,11 @@ export function getWinner(state) {
 
 /* ---- Payload builders --------------------------------------- */
 
-/** 傳給 client 的 SNAPSHOT payload — 不能含 Set（JSON 不支援），把 poison.infected / severe 轉 array。 */
+/**
+ * 傳給 client 的 SNAPSHOT payload。poison.infected/severe 不再每 tick 全送，
+ * client 從 MATCH_START 拿空 baseline，之後靠 `poison_wave` event 增量加 newCells / newSevere。
+ * 只保留標量欄位（nextWaveAtMs / waveCount）給 HUD 倒數使用。
+ */
 export function buildSnapshotPayload(state, newEvents) {
   return {
     tick: state.tick,
@@ -450,8 +461,6 @@ export function buildSnapshotPayload(state, newEvents) {
     players: state.players,
     bullets: state.bullets,
     poison: {
-      infected: [...state.poison.infected],
-      severe: [...state.poison.severe],
       nextWaveAtMs: state.poison.nextWaveAtMs,
       waveCount: state.poison.waveCount,
     },

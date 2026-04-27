@@ -29,6 +29,8 @@ export class Match {
       isBot: !!p.isBot,
     }));
     this.startedAtMs = Date.now();
+    // 廣播 scope 限縮在這個 room；start() 時把玩家 socket join 進來、end() 全踢
+    this.roomId = `match-${this.startedAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     this.state = game.sim.createInitialState(this.players, this.config, this.startedAtMs);
     this.inputs = new Map();
     this.interval = null;
@@ -43,8 +45,13 @@ export class Match {
   }
 
   start() {
+    // 把所有非 bot 玩家的 socket 都 join 進 match room
+    for (const p of this.players) {
+      if (p.isBot) continue;
+      this.io.sockets.sockets.get(p.id)?.join(this.roomId);
+    }
     const payload = this.game.sim.buildMatchStartPayload(this.state, this.config);
-    this.io.emit(MSG.MATCH_START, payload);
+    this.io.to(this.roomId).emit(MSG.MATCH_START, payload);
     this.interval = setInterval(() => this.tick(Date.now()), TICK_MS);
   }
 
@@ -90,7 +97,7 @@ export class Match {
     }
     this._accumulateEvents(newEvents);
 
-    this.io.emit(MSG.SNAPSHOT, sim.buildSnapshotPayload(state, newEvents));
+    this.io.to(this.roomId).emit(MSG.SNAPSHOT, sim.buildSnapshotPayload(state, newEvents));
 
     if (state.phase === 'ended' || sim.aliveCount(state) <= 1) this.end();
   }
@@ -236,7 +243,9 @@ export class Match {
       console.warn('[match] recordMatch failed, enqueueing fallback:', err.message);
       enqueueMatchFallback(recordPayload);
     });
-    this.io.emit(MSG.MATCH_END, { winnerId, summary: this.stats });
+    this.io.to(this.roomId).emit(MSG.MATCH_END, { winnerId, summary: this.stats });
+    // 把所有 socket 踢出 room（不影響 socket 連線本身，下一場 match 會用新 roomId）
+    this.io.in(this.roomId).socketsLeave(this.roomId);
     if (this.onEnd) this.onEnd();
   }
 

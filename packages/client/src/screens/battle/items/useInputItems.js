@@ -1,5 +1,5 @@
 // Items 輸入：WASD 移動 + 滑鼠 aim + LMB held 射擊 + 1–5 one-shot 施技能。
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   ARENA_COLS, ARENA_ROWS, SKILL_KEYS,
 } from '@office-colosseum/shared/src/games/items/index.js';
@@ -58,7 +58,8 @@ export function useInputItems(arenaRef, selfPosRef) {
     };
   }, [arenaRef]);
 
-  function readInput() {
+  // 穩定引用，避免父層 useEffect 因 readInput 改變被 30Hz 重建 input timer
+  const readInput = useCallback(() => {
     let mx = 0, my = 0;
     if (keys.current.has('w') || keys.current.has('arrowup')) my -= 1;
     if (keys.current.has('s') || keys.current.has('arrowdown')) my += 1;
@@ -80,6 +81,6 @@ export function useInputItems(arenaRef, selfPosRef) {
       attack: leftDown.current,
       skill,
     };
-  }
+  }, [selfPosRef]);
   return readInput;
 }

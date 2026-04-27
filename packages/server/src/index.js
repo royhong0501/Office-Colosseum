@@ -43,7 +43,13 @@ app.get(/^(?!\/(auth|admin|health|socket\.io)\/).*/, (_, res) =>
 );
 
 const httpServer = createServer(app);
-const io = new IOServer(httpServer, { cors: { origin: '*' } });
+// transports 只允許 websocket：
+// 跳過 polling → ws 升級協商，避免雲端 reverse proxy 在某些網路環境把 ws 升級擋掉退回 long-poll
+// （long-poll 會把單向延遲拉到 100ms+ 級別）。少數封 ws 的企業網路會連不上，trade-off 接受。
+const io = new IOServer(httpServer, {
+  cors: { origin: '*' },
+  transports: ['websocket'],
+});
 registerSocketHandlers(io);
 
 // 暖機 Prisma client + 嘗試 replay 上次失敗的戰績寫入

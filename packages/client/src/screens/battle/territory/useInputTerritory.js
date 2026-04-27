@@ -1,5 +1,5 @@
 // Territory 輸入：只有 WASD。無 aim / 無 attack / 無 skill。
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 export function useInputTerritory() {
   const keys = useRef(new Set());
@@ -19,7 +19,8 @@ export function useInputTerritory() {
     };
   }, []);
 
-  function readInput() {
+  // 穩定引用，避免父層 useEffect 因 readInput 改變被 30Hz 重建 input timer
+  const readInput = useCallback(() => {
     let mx = 0, my = 0;
     if (keys.current.has('w') || keys.current.has('arrowup')) my -= 1;
     if (keys.current.has('s') || keys.current.has('arrowdown')) my += 1;
@@ -27,6 +28,6 @@ export function useInputTerritory() {
     if (keys.current.has('d') || keys.current.has('arrowright')) mx += 1;
     seq.current += 1;
     return { seq: seq.current, moveX: mx, moveY: my, aimAngle: 0 };
-  }
+  }, []);
   return readInput;
 }
