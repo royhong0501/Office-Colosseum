@@ -4,7 +4,8 @@ import {
   ARENA_COLS, ARENA_ROWS, SKILL_KEYS,
 } from '@office-colosseum/shared/src/games/items/index.js';
 
-export function useInputItems(arenaRef, selfPosRef) {
+export function useInputItems(arenaRef, selfPosRef, options = {}) {
+  const { emoteOpenRef } = options;  // 可為 undefined（向後相容）
   const keys = useRef(new Set());
   const leftDown = useRef(false);
   const pendingSkill = useRef(null);
@@ -15,8 +16,10 @@ export function useInputItems(arenaRef, selfPosRef) {
     const onKeyDown = (e) => {
       const k = e.key.toLowerCase();
       keys.current.add(k);
+      // hold T 中 → 1-5 不寫 pendingSkill（讓 useEmoteInput 收）
+      const tHeld = !!emoteOpenRef?.current;
       // 數字鍵 1~5 對應 freeze / undo / merge / readonly / validate
-      if (['1', '2', '3', '4', '5'].includes(e.key)) {
+      if (!tHeld && ['1', '2', '3', '4', '5'].includes(e.key)) {
         const idx = parseInt(e.key, 10) - 1;
         pendingSkill.current = SKILL_KEYS[idx] ?? null;
       }
