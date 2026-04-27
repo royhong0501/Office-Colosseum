@@ -13,6 +13,7 @@ import {
   SKILLS, SKILL_KEYS,
   HP_HISTORY_INTERVAL_MS, HP_HISTORY_LEN,
 } from './constants.js';
+import { applyEmoteInput } from '../../emotes.js';
 
 export const GAME_ID = 'items';
 export const NAME = '道具戰';
@@ -77,6 +78,7 @@ export function createInitialState(players, config = {}, startedAtMs = Date.now(
       frozenUntil: 0, slowedUntil: 0, silencedUntil: 0,
       hpHistory: [{ atMs: startedAtMs, hp: MAX_HP }],
       lastHurtAt: 0, lastHpRecordAt: startedAtMs,
+      emoteCdUntil: 0,
     };
   });
   return state;
@@ -101,6 +103,9 @@ export function sanitizeInput(raw) {
   const skill = typeof raw.skill === 'string' && SKILL_KEYS.includes(raw.skill)
     ? raw.skill
     : null;
+  const emote = (Number.isInteger(raw.emote) && raw.emote >= 1 && raw.emote <= 6)
+    ? raw.emote
+    : null;
   return {
     seq: Number.isFinite(raw.seq) ? (raw.seq | 0) : 0,
     moveX: num(raw.moveX),
@@ -108,6 +113,7 @@ export function sanitizeInput(raw) {
     aimAngle: num(raw.aimAngle),
     attack: !!raw.attack,
     skill,
+    emote,
   };
 }
 
@@ -118,7 +124,12 @@ export function sanitizeInput(raw) {
 
 export function applyInput(state, playerId, input, now, rng = Math.random) {
   const p = state.players[playerId];
-  if (!p || !p.alive || p.paused) return state;
+  if (!p) return state;
+  // 死亡 / paused 仍允許 emote（社交訊號），但其他輸入跳過
+  if (!p.alive || p.paused) {
+    applyEmoteInput(p, input, state, now);
+    return state;
+  }
   // 凍結中不能動 / 不能射 / 不能施技
   const frozen = now < p.frozenUntil;
 
@@ -165,6 +176,8 @@ export function applyInput(state, playerId, input, now, rng = Math.random) {
       castSkill(state, p, skillId, now, rng);
     }
   }
+
+  applyEmoteInput(p, input, state, now);
 
   return state;
 }

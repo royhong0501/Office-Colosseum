@@ -2,12 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { getSocket } from '../../../net/socket.js';
-import { MSG, TICK_MS, getCharacterById } from '@office-colosseum/shared';
+import { MSG, TICK_MS, EMOTE_CD_MS, getCharacterById } from '@office-colosseum/shared';
 import { ARENA_COLS, ARENA_ROWS, BULLET_DMG } from '@office-colosseum/shared/src/games/br/constants.js';
 import SheetWindow from '../../../components/SheetWindow.jsx';
 import ArenaBR from './ArenaBR.jsx';
 import BattleHudBR from './BattleHudBR.jsx';
 import { useInputBR } from './useInputBR.js';
+import { useEmoteInput } from '../useEmoteInput.js';
+import { useEmoteFeed } from '../useEmoteFeed.js';
+import EmoteBar from '../../../components/EmoteBar.jsx';
 
 const LOG_LIMIT = 12;
 
@@ -47,17 +50,24 @@ export default function BattleRoyale({ initialState, config, onEnd, readOnly = f
 
   // 輸入（觀戰模式不送）
   const readInput = useInputBR(arenaRef, selfPosRef);
+  const { emoteOpen, consume: consumeEmote } = useEmoteInput();
+  const activeEmotes = useEmoteFeed();
+  const [selfCooldownUntil, setSelfCooldownUntil] = useState(0);
   useEffect(() => {
     if (readOnly) return undefined;
     const id = setInterval(() => {
       if (phase !== 'playing') return;
       try {
-        const input = readInput();
-        socket.emit(MSG.INPUT, input);
+        const baseInput = readInput();
+        const emote = consumeEmote();
+        if (emote != null && Date.now() >= selfCooldownUntil) {
+          setSelfCooldownUntil(Date.now() + EMOTE_CD_MS);
+        }
+        socket.emit(MSG.INPUT, { ...baseInput, emote });
       } catch (e) { /* ignore */ }
     }, TICK_MS);
     return () => clearInterval(id);
-  }, [phase, readInput, socket, readOnly]);
+  }, [phase, readInput, socket, readOnly, consumeEmote, selfCooldownUntil]);
 
   // 訂閱 SNAPSHOT / MATCH_END
   useEffect(() => {
@@ -237,6 +247,7 @@ export default function BattleRoyale({ initialState, config, onEnd, readOnly = f
             poison={poison}
             selfId={selfId}
             hurtIds={hurtIds}
+            activeEmotes={activeEmotes}
           />
           {/* 飄字 overlay（HTML 層） */}
           <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
@@ -300,6 +311,8 @@ export default function BattleRoyale({ initialState, config, onEnd, readOnly = f
         {/* 右側 HUD */}
         <BattleHudBR selfId={selfId} players={players} poison={poison} now={now} />
       </div>
+      {/* hold T 顯示的 emote bar — position: fixed 自己 escape SheetWindow layout */}
+      <EmoteBar open={emoteOpen && !readOnly} cooldownUntil={selfCooldownUntil} />
     </SheetWindow>
   );
 }

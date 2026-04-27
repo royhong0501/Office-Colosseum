@@ -6,6 +6,7 @@ import {
 } from '@office-colosseum/shared/src/games/items/constants.js';
 import { getCharacterById } from '@office-colosseum/shared';
 import { CharacterSpriteSvg } from '../../../components/CharacterSprite.jsx';
+import EmoteBubble from '../../../components/EmoteBubble.jsx';
 import {
   useRafTick, useTrackSnapshot, lerpT,
   interpolateMap, interpolateList,
@@ -19,7 +20,7 @@ const TRAP_STYLE = {
 };
 
 const ArenaItems = memo(forwardRef(function ArenaItems(
-  { players, bullets, traps, selfId, hurtIds, now },
+  { players, bullets, traps, selfId, hurtIds, now, activeEmotes = {} },
   ref,
 ) {
   // 60Hz 補幀（同 ArenaBR）。traps 是靜態不需要補。
@@ -112,6 +113,19 @@ const ArenaItems = memo(forwardRef(function ArenaItems(
       {trapEls}
       {bulletEls}
       {playerEls}
+      {/* emote bubbles（最上層） */}
+      {Object.entries(activeEmotes).map(([pid, e]) => {
+        const p = renderPlayers?.[pid];
+        if (!p) return null;
+        return (
+          <EmoteBubble
+            key={`emote-${pid}-${e.startedAt}`}
+            x={p.x}
+            y={p.y}
+            slot={e.slot}
+          />
+        );
+      })}
     </svg>
   );
 }));

@@ -323,3 +323,31 @@ test('RNG：同樣 seed 的 resolveTick 產出可重現的毒圈擴散', () => {
   resolveTick(s2, POISON_START_MS + 1, rng2);
   assert.deepEqual([...s1.poison.infected].sort(), [...s2.poison.infected].sort());
 });
+
+/* ---- emote 整合 ---- */
+
+test('br/applyInput：合法 emote → state.events 有 emote 事件', () => {
+  const s = createInitialState(players2, config0, startedAtMs);
+  const before = s.events.length;
+  applyInput(s, 'p1', emptyInput({ emote: 6 }), 1000);
+  const emoteEvents = s.events.slice(before).filter(e => e.kind === 'emote');
+  assert.equal(emoteEvents.length, 1);
+  assert.equal(emoteEvents[0].slot, 6);
+  assert.equal(emoteEvents[0].playerId, 'p1');
+});
+
+test('br/applyInput：玩家死亡仍能 emote（社交訊號）', () => {
+  const s = createInitialState(players2, config0, startedAtMs);
+  s.players.p1.alive = false;
+  applyInput(s, 'p1', emptyInput({ emote: 1 }), 1000);
+  const emoteEvents = s.events.filter(e => e.kind === 'emote' && e.playerId === 'p1');
+  assert.equal(emoteEvents.length, 1);
+});
+
+test('br/applyInput：paused 玩家不能 emote', () => {
+  const s = createInitialState(players2, config0, startedAtMs);
+  s.players.p1.paused = true;
+  applyInput(s, 'p1', emptyInput({ emote: 1 }), 1000);
+  const emoteEvents = s.events.filter(e => e.kind === 'emote' && e.playerId === 'p1');
+  assert.equal(emoteEvents.length, 0);
+});

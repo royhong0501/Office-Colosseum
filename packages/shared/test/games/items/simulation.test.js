@@ -261,3 +261,27 @@ test('paused 玩家：applyInput 與 resolveTick 都跳過', () => {
   assert.equal(p.x, beforeX, 'paused 不能移動');
   assert.equal(s.bullets.length, 0, 'paused 不能射擊');
 });
+
+test('items/applyInput：合法 emote → state.events 有 emote 事件', () => {
+  const s = createInitialState(players2, {}, 0);
+  applyInput(s, 'p1', emptyInput({ emote: 4 }), 1000);
+  const emoteEvents = s.events.filter(e => e.kind === 'emote' && e.playerId === 'p1');
+  assert.equal(emoteEvents.length, 1);
+  assert.equal(emoteEvents[0].slot, 4);
+});
+
+test('items/applyInput：玩家凍結中仍能 emote', () => {
+  const s = createInitialState(players2, {}, 0);
+  s.players.p1.frozenUntil = 9999999;
+  applyInput(s, 'p1', emptyInput({ emote: 3 }), 1000);
+  const emoteEvents = s.events.filter(e => e.kind === 'emote' && e.playerId === 'p1');
+  assert.equal(emoteEvents.length, 1);
+});
+
+test('items/applyInput：paused 玩家不能 emote', () => {
+  const s = createInitialState(players2, {}, 0);
+  s.players.p1.paused = true;
+  applyInput(s, 'p1', emptyInput({ emote: 1 }), 1000);
+  const emoteEvents = s.events.filter(e => e.kind === 'emote' && e.playerId === 'p1');
+  assert.equal(emoteEvents.length, 0);
+});

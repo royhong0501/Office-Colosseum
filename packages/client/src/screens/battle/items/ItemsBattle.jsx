@@ -2,13 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { getSocket } from '../../../net/socket.js';
-import { MSG, TICK_MS, getCharacterById } from '@office-colosseum/shared';
+import { MSG, TICK_MS, EMOTE_CD_MS, getCharacterById } from '@office-colosseum/shared';
 import { ARENA_COLS, ARENA_ROWS } from '@office-colosseum/shared/src/games/items/constants.js';
 import SheetWindow from '../../../components/SheetWindow.jsx';
 import ArenaItems from './ArenaItems.jsx';
 import BattleHudItems from './BattleHudItems.jsx';
 import TutorialModal from './TutorialModal.jsx';
 import { useInputItems } from './useInputItems.js';
+import { useEmoteInput } from '../useEmoteInput.js';
+import { useEmoteFeed } from '../useEmoteFeed.js';
+import EmoteBar from '../../../components/EmoteBar.jsx';
 
 const LOG_LIMIT = 12;
 
@@ -37,18 +40,29 @@ export default function ItemsBattle({ initialState, config, onEnd, readOnly = fa
     return () => clearInterval(id);
   }, []);
 
-  const readInput = useInputItems(arenaRef, selfPosRef);
+  const { emoteOpen, consume: consumeEmote } = useEmoteInput();
+  const emoteOpenRef = useRef(false);
+  // 同步 emoteOpen state 到 ref（給 useInputItems 在 keyboard handler 內讀）
+  useEffect(() => { emoteOpenRef.current = emoteOpen; }, [emoteOpen]);
+  const activeEmotes = useEmoteFeed();
+  const [selfCooldownUntil, setSelfCooldownUntil] = useState(0);
+
+  const readInput = useInputItems(arenaRef, selfPosRef, { emoteOpenRef });
   useEffect(() => {
     if (readOnly) return undefined;
     const id = setInterval(() => {
       if (phase !== 'playing' || tutorialOpen) return;
       try {
-        const input = readInput();
-        socket.emit(MSG.INPUT, input);
+        const baseInput = readInput();
+        const emote = consumeEmote();
+        if (emote != null && Date.now() >= selfCooldownUntil) {
+          setSelfCooldownUntil(Date.now() + EMOTE_CD_MS);
+        }
+        socket.emit(MSG.INPUT, { ...baseInput, emote });
       } catch (e) { /* ignore */ }
     }, TICK_MS);
     return () => clearInterval(id);
-  }, [phase, tutorialOpen, readInput, socket, readOnly]);
+  }, [phase, tutorialOpen, readInput, socket, readOnly, consumeEmote, selfCooldownUntil]);
 
   useEffect(() => {
     const onSnapshot = (snap) => {
@@ -152,6 +166,7 @@ export default function ItemsBattle({ initialState, config, onEnd, readOnly = fa
             selfId={selfId}
             hurtIds={hurtIds}
             now={now}
+            activeEmotes={activeEmotes}
           />
           {/* 飄字 */}
           <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
@@ -196,6 +211,8 @@ export default function ItemsBattle({ initialState, config, onEnd, readOnly = fa
           now={now}
         />
       </div>
+      {/* hold T 顯示的 emote bar — position: fixed 自己 escape SheetWindow layout */}
+      <EmoteBar open={emoteOpen && !readOnly} cooldownUntil={selfCooldownUntil} />
     </SheetWindow>
   );
 }
