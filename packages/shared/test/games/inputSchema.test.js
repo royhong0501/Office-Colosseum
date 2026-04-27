@@ -99,3 +99,45 @@ test('territory/sanitizeInput：只保留 move + aim 欄位', () => {
 test('territory/sanitizeInput：null → null', () => {
   assert.equal(sanitizeTerritory(null), null);
 });
+
+/* ---- emote 白名單（三款共用規則）---- */
+
+test('br/sanitizeInput：合法 emote 1-6 保留', () => {
+  for (let s = 1; s <= 6; s++) {
+    assert.equal(sanitizeBR({ emote: s }).emote, s);
+  }
+});
+
+test('br/sanitizeInput：emote 越界 → null', () => {
+  assert.equal(sanitizeBR({ emote: 0 }).emote, null);
+  assert.equal(sanitizeBR({ emote: 7 }).emote, null);
+  assert.equal(sanitizeBR({ emote: -1 }).emote, null);
+});
+
+test('br/sanitizeInput：emote 非整數 → null', () => {
+  assert.equal(sanitizeBR({ emote: 1.5 }).emote, null);
+  assert.equal(sanitizeBR({ emote: 'evil' }).emote, null);
+  assert.equal(sanitizeBR({ emote: {} }).emote, null);
+  assert.equal(sanitizeBR({ emote: true }).emote, null);
+});
+
+test('br/sanitizeInput：emote 不存在 → null', () => {
+  assert.equal(sanitizeBR({}).emote, null);
+});
+
+test('items/sanitizeInput：合法 emote 1-6 保留', () => {
+  assert.equal(sanitizeItems({ emote: 3 }).emote, 3);
+});
+
+test('items/sanitizeInput：emote 7 → null', () => {
+  assert.equal(sanitizeItems({ emote: 7 }).emote, null);
+});
+
+test('territory/sanitizeInput：合法 emote 保留', () => {
+  assert.equal(sanitizeTerritory({ emote: 6 }).emote, 6);
+});
+
+test('territory/sanitizeInput：emote 非法 → null', () => {
+  assert.equal(sanitizeTerritory({ emote: 'evil' }).emote, null);
+  assert.equal(sanitizeTerritory({ emote: 0 }).emote, null);
+});
