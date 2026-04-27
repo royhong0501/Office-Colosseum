@@ -69,6 +69,9 @@ model MatchParticipant {
   dmgTaken      Int
   survivedTicks Int
   isWinner      Boolean
+  // 遊戲專屬 stats：每款 gameType 各自的細部欄位（每 STAT_KEYS）。
+  // BR: kills/bulletsFired/bulletsHit/dashUsed; Items: skillsCast/trapsPlaced/trapsTriggered/undoUsed/skill_*; Territory: cellsPainted/areasCaptured/teamCellsAtEnd/teamId
+  stats         Json    @default("{}")
   match         Match   @relation(fields: [matchId], references: [id], onDelete: Cascade)
   user          User?   @relation(fields: [userId], references: [id])
 

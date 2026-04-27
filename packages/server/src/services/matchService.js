@@ -8,6 +8,35 @@ import { get as getRecordsCache, invalidateRecords } from './recordsCache.js';
 
 export const MIN_REAL_PLAYERS = 2;
 
+// 每款遊戲對 MatchParticipant.stats JSON 認可的欄位白名單。
+// match.js _accumulateEvents 會累加成這些 key；getSnapshot 回給 client 時也走這份過濾，
+// 避免 corrupt JSON 讓 UI 算錯。teamId（territory 專用）非數值，獨立處理。
+export const STAT_KEYS = {
+  'battle-royale': [
+    'damageDealt', 'damageTaken', 'kills',
+    'bulletsFired', 'bulletsHit', 'dashUsed',
+  ],
+  'items': [
+    'damageDealt', 'damageTaken', 'kills',
+    'skillsCast', 'trapsPlaced', 'trapsTriggered',
+    'undoUsed',
+    'skill_freeze', 'skill_merge', 'skill_readonly', 'skill_validate',
+    'trig_freeze', 'trig_merge', 'trig_readonly', 'trig_validate',
+  ],
+  'territory': [
+    'cellsPainted', 'areasCaptured', 'cellsCapturedByFormatbrush',
+    'teamCellsAtEnd',
+  ],
+};
+
+function sanitizeStats(gameType, raw) {
+  const out = {};
+  const keys = STAT_KEYS[gameType] ?? [];
+  for (const k of keys) out[k] = (raw?.[k] | 0) || 0;
+  if (gameType === 'territory' && typeof raw?.teamId === 'number') out.teamId = raw.teamId;
+  return out;
+}
+
 // participants: [{ userId, displayName, characterId, dmgDealt, dmgTaken, survivedTicks, isWinner, isBot }]
 // userId 是 null（bot）或 Postgres User.id 字串。
 // 至少要 MIN_REAL_PLAYERS 個非 bot 才寫入。
@@ -20,10 +49,11 @@ export async function recordMatch({ gameType, config, startedAt, endedAt, partic
   const winner = real.find(p => p.isWinner) ?? null;
   const prisma = getPrisma();
 
+  const gt = gameType ?? 'battle-royale';
   const match = await prisma.$transaction(async (tx) => {
     const m = await tx.match.create({
       data: {
-        gameType: gameType ?? 'battle-royale',
+        gameType: gt,
         config: config ?? {},
         startedAt: new Date(startedAt),
         endedAt: new Date(endedAt),
@@ -39,6 +69,7 @@ export async function recordMatch({ gameType, config, startedAt, endedAt, partic
             dmgTaken: p.dmgTaken | 0,
             survivedTicks: p.survivedTicks | 0,
             isWinner: !!p.isWinner,
+            stats: sanitizeStats(gt, p.stats),
           })),
         },
       },
@@ -112,6 +143,7 @@ async function _buildSnapshotFromDb(recentLimit) {
         survivedTicks: p.survivedTicks,
         isWinner: p.isWinner,
         isBot: p.isBot,
+        stats: sanitizeStats(m.gameType, p.stats ?? {}),
       })),
     })),
   };
