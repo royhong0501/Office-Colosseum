@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { ARENA_COLS, ARENA_ROWS } from '@office-colosseum/shared/src/games/br/constants.js';
 
-export function useInputBR(arenaRef, selfPosRef) {
+export function useInputBR(arenaRef, selfPosRef, _options = {}) {
   const keys = useRef(new Set());
   const leftDown = useRef(false);
   const rightDown = useRef(false);

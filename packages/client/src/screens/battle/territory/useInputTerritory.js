@@ -1,7 +1,7 @@
 // Territory 輸入：只有 WASD。無 aim / 無 attack / 無 skill。
 import { useCallback, useEffect, useRef } from 'react';
 
-export function useInputTerritory() {
+export function useInputTerritory(_options = {}) {
   const keys = useRef(new Set());
   const seq = useRef(0);
 
