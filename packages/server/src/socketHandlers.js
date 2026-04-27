@@ -128,5 +128,11 @@ export function registerSocketHandlers(io) {
       if (match) match.setPaused(socket.id, false);
       hdelOnline(user.id).catch(() => {});
     });
+
+    // Debug overlay 量 RTT 用：client emit 帶 ack，server 立刻回 ack。
+    // 不放進 MSG 是因為這純 dev 用，不是公開 protocol。
+    socket.on('ping_diag', (_payload, ack) => {
+      if (typeof ack === 'function') ack();
+    });
   });
 }

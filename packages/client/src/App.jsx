@@ -15,6 +15,7 @@ import { useBossKey } from './hooks/useBossKey.js';
 import { useSocketStatus } from './hooks/useSocketStatus.js';
 import ConnectionBanner from './components/ConnectionBanner.jsx';
 import ChatPanel from './components/ChatPanel.jsx';
+import DebugOverlay from './components/DebugOverlay.jsx';
 import { getSocket, reconnectSocket, disconnectSocket } from './net/socket.js';
 import { MSG } from '@office-colosseum/shared';
 import {
@@ -57,6 +58,20 @@ export default function App() {
     const onCleared = () => { setUser(null); setScreen('auth'); };
     window.addEventListener('oc:auth-cleared', onCleared);
     return () => window.removeEventListener('oc:auth-cleared', onCleared);
+  }, []);
+
+  // Debug overlay（FPS / PING / DROP25）：預設常駐顯示。
+  // 仍保留 Ctrl+` 切換（跟 VS Code terminal toggle 一致），不想看就關掉。
+  const [debugVisible, setDebugVisible] = useState(true);
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.ctrlKey && (e.key === '`' || e.code === 'Backquote')) {
+        e.preventDefault();
+        setDebugVisible(v => !v);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
   const [matchStart, setMatchStart] = useState(null);
@@ -168,6 +183,8 @@ export default function App() {
           </div>
         ) : content}
       </div>
+      {/* 只在戰鬥畫面顯示 debug overlay；其他畫面（lobby/menu/auth/...）一律不掛 */}
+      <DebugOverlay visible={debugVisible && screen === 'battle'} />
     </>
   );
 }
