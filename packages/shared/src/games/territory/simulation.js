@@ -4,6 +4,7 @@
 
 import { TICK_MS } from '../../constants.js';
 import { clamp } from '../../math.js';
+import { applyEmoteInput } from '../../emotes.js';
 import {
   ARENA_COLS, ARENA_ROWS,
   MAX_TEAMS, MOVE_SPEED, PLAYER_RADIUS, ROUND_DURATION_MS,
@@ -86,6 +87,7 @@ export function createInitialState(players, config = {}, startedAtMs = Date.now(
         moveX: 0, moveY: 0,
         aimAngle: 0, facing: 0,
         alive: true, paused: false,
+        emoteCdUntil: 0,
       };
       // spawn 本格直接被自己隊色佔領
       state.cells[cellKey(cx, cy)] = team.id;
@@ -114,11 +116,15 @@ function allocateSpawns(teams) {
 export function sanitizeInput(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const num = (v) => (Number.isFinite(v) ? v : 0);
+  const emote = (Number.isInteger(raw.emote) && raw.emote >= 1 && raw.emote <= 6)
+    ? raw.emote
+    : null;
   return {
     seq: Number.isFinite(raw.seq) ? (raw.seq | 0) : 0,
     moveX: num(raw.moveX),
     moveY: num(raw.moveY),
     aimAngle: num(raw.aimAngle),
+    emote,
   };
 }
 
@@ -127,7 +133,11 @@ export function sanitizeInput(raw) {
    ------------------------------------------------------------ */
 export function applyInput(state, playerId, input, now, _rng) {
   const p = state.players[playerId];
-  if (!p || !p.alive || p.paused) return state;
+  if (!p) return state;
+  if (!p.alive || p.paused) {
+    applyEmoteInput(p, input, state, now);
+    return state;
+  }
   const mx = input.moveX ?? 0, my = input.moveY ?? 0;
   const len = Math.hypot(mx, my);
   if (len > 0) { p.moveX = mx / len; p.moveY = my / len; }
@@ -136,6 +146,7 @@ export function applyInput(state, playerId, input, now, _rng) {
     p.aimAngle = input.aimAngle;
     p.facing = input.aimAngle;
   }
+  applyEmoteInput(p, input, state, now);
   return state;
 }
 

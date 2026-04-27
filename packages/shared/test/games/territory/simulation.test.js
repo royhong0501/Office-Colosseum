@@ -215,3 +215,30 @@ test('paused 玩家：移動跳過但 alive=true 保留', () => {
   assert.equal(p.x, beforeX, 'paused 不能移動');
   assert.equal(p.alive, true, 'paused 不影響 alive');
 });
+
+test('territory/applyInput：合法 emote → state.events 有 emote 事件', () => {
+  // 用 4 人 → 2v2，避免 1v1 trivial
+  const players = [
+    { id: 'p1', characterId: 'munchkin' },
+    { id: 'p2', characterId: 'husky' },
+    { id: 'p3', characterId: 'tabby' },
+    { id: 'p4', characterId: 'beagle' },
+  ];
+  const s = createInitialState(players, {}, 0);
+  applyInput(s, 'p1', { seq: 1, moveX: 0, moveY: 0, aimAngle: 0, emote: 5 }, 1000);
+  const emoteEvents = s.events.filter(e => e.kind === 'emote' && e.playerId === 'p1');
+  assert.equal(emoteEvents.length, 1);
+  assert.equal(emoteEvents[0].slot, 5);
+});
+
+test('territory/applyInput：paused 不能 emote', () => {
+  const players = [
+    { id: 'p1', characterId: 'munchkin' },
+    { id: 'p2', characterId: 'husky' },
+  ];
+  const s = createInitialState(players, {}, 0);
+  s.players.p1.paused = true;
+  applyInput(s, 'p1', { seq: 1, moveX: 0, moveY: 0, aimAngle: 0, emote: 1 }, 1000);
+  const emoteEvents = s.events.filter(e => e.kind === 'emote' && e.playerId === 'p1');
+  assert.equal(emoteEvents.length, 0);
+});
