@@ -3,7 +3,8 @@ dist/
 .DS_Store
 *.log
 .vite/
-docs
+docs/*
+!docs/superpowers/
 
 # Server data / Prisma
 packages/server/data/
