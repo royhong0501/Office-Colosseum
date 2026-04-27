@@ -9,6 +9,7 @@ import {
 } from '@office-colosseum/shared/src/games/br/constants.js';
 import { getCharacterById } from '@office-colosseum/shared';
 import { CharacterSpriteSvg } from '../../../components/CharacterSprite.jsx';
+import EmoteBubble from '../../../components/EmoteBubble.jsx';
 import {
   useRafTick, useTrackSnapshot, lerpT,
   interpolateMap, interpolateList,
@@ -17,7 +18,7 @@ import {
 const POISON_LABELS = ['#REF!', '#VALUE!', '#NULL!'];
 
 const ArenaBR = memo(forwardRef(function ArenaBR(
-  { map, players, bullets, poison, selfId, hurtIds },
+  { map, players, bullets, poison, selfId, hurtIds, activeEmotes = {} },
   ref,
 ) {
   // 60Hz 補幀：rAF 強制本元件每幀 re-render，players / bullets 在 prev→curr 之間 lerp
@@ -168,6 +169,19 @@ const ArenaBR = memo(forwardRef(function ArenaBR(
       {bulletEls}
       {/* players */}
       {playerEls}
+      {/* emote bubbles（最上層） */}
+      {Object.entries(activeEmotes).map(([pid, e]) => {
+        const p = renderPlayers?.[pid];
+        if (!p) return null;
+        return (
+          <EmoteBubble
+            key={`emote-${pid}-${e.startedAt}`}
+            x={p.x}
+            y={p.y}
+            slot={e.slot}
+          />
+        );
+      })}
     </svg>
   );
 }));
