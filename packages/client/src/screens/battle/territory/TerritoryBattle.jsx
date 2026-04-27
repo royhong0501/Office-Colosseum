@@ -45,11 +45,14 @@ export default function TerritoryBattle({ initialState, config, onEnd }) {
       setTick(snap.tick);
       setPlayers(snap.players ?? {});
       if (snap.teams) setTeams(snap.teams);
-      if (snap.cells) setCells(snap.cells);
+      // cells 不再 per-tick 全送，靠 events 增量更新
       if (snap.counts) setCounts(snap.counts);
       if (snap.phase) setPhase(snap.phase);
       if (snap.roundEndsAtMs) setRoundEndsAtMs(snap.roundEndsAtMs);
-      if (Array.isArray(snap.events)) processEvents(snap.events);
+      if (Array.isArray(snap.events)) {
+        applyCellEvents(snap.events);
+        processEvents(snap.events);
+      }
     };
     const onMatchEnd = ({ winnerId, summary }) => {
       onEnd?.({ winnerId, summary, players });
@@ -64,6 +67,26 @@ export default function TerritoryBattle({ initialState, config, onEnd }) {
   }, [selfId]);
 
   function pushLog(line) { setLog((prev) => [...prev.slice(-LOG_LIMIT + 1), line]); }
+
+  // server 不再每 tick 送 cells；client 維護本地 map，根據 paint / area_captured events 增量更新。
+  // 同一 tick 可能有多個 events，全部累進一個 patch 再 setCells，避免多次 React re-render。
+  function applyCellEvents(events) {
+    let patch = null;
+    for (const e of events) {
+      if (e.type === 'paint' && Array.isArray(e.cells)) {
+        for (const [c, r, teamId] of e.cells) {
+          if (!patch) patch = {};
+          patch[`${c},${r}`] = teamId;
+        }
+      } else if (e.type === 'area_captured' && Array.isArray(e.cells)) {
+        for (const [c, r] of e.cells) {
+          if (!patch) patch = {};
+          patch[`${c},${r}`] = e.teamId;
+        }
+      }
+    }
+    if (patch) setCells(prev => ({ ...prev, ...patch }));
+  }
 
   function processEvents(events) {
     for (const e of events) {

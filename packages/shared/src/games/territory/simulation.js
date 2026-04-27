@@ -303,7 +303,11 @@ export function getWinner(state) {
   return state.teams[best]?.playerIds?.[0] ?? null;
 }
 
-/** SNAPSHOT：cells 是 sparse object，直接送（key 數量通常 < 286，可接受）。 */
+/**
+ * SNAPSHOT：不再每 tick 全送 cells（後期可達 200+ keys，30Hz × N clients 對 WAN 太重）。
+ * client 從 MATCH_START 拿初始 cells baseline，之後靠 `paint` / `area_captured` events 增量套用。
+ * counts 仍每 tick 重新計算後送進來，UI 直接讀（client 自己加總會跟 events 競態）。
+ */
 export function buildSnapshotPayload(state, newEvents) {
   return {
     tick: state.tick,
@@ -312,7 +316,6 @@ export function buildSnapshotPayload(state, newEvents) {
     roundEndsAtMs: state.roundEndsAtMs,
     players: state.players,
     teams: state.teams,
-    cells: state.cells,
     counts: countByTeam(state),
     events: newEvents,
   };

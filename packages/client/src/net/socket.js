@@ -8,6 +8,8 @@ export function getSocket() {
     socket = io({
       autoConnect: false,
       auth: (cb) => cb({ token: getToken() }),
+      // 跟 server `transports: ['websocket']` 對齊，跳過 polling 握手（雲端延遲較低）
+      transports: ['websocket'],
     });
     socket.on('connect_error', (err) => {
       // 'unauthorized:*' → token 失效（過期/被 revoke/帳號停用），清狀態讓 App 跳回 Login
@@ -17,6 +19,8 @@ export function getSocket() {
         window.dispatchEvent(new CustomEvent('oc:auth-cleared'));
       }
     });
+    // 暴露給 DevTools console 做即時診斷（測延遲 / 計 input、snapshot 速率用）
+    if (typeof window !== 'undefined') window.__OC_SOCKET__ = socket;
   }
   return socket;
 }

@@ -1,7 +1,7 @@
 // BR 輸入捕捉：WASD/方向鍵移動 + 滑鼠 aim + LMB 射擊 held + RMB 舉盾 held + Shift 衝刺 one-shot。
 // 回傳 readInput() 每 tick 呼叫一次；dash 是 one-shot 所以讀完清掉。
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { ARENA_COLS, ARENA_ROWS } from '@office-colosseum/shared/src/games/br/constants.js';
 
 export function useInputBR(arenaRef, selfPosRef) {
@@ -70,21 +70,22 @@ export function useInputBR(arenaRef, selfPosRef) {
     };
   }, [arenaRef]);
 
-  function readInput() {
-    // WASD + 方向鍵
+  // useCallback([], ...) 鎖死 readInput 引用：body 只讀寫 ref，不需要 deps。
+  // 父層 BattleRoyale 把它放進 setInterval 的 useEffect deps 裡，引用穩定才不會
+  // 每次 snapshot re-render 都把 input timer reset 掉。
+  const readInput = useCallback(() => {
     let mx = 0, my = 0;
     if (keys.current.has('w') || keys.current.has('arrowup')) my -= 1;
     if (keys.current.has('s') || keys.current.has('arrowdown')) my += 1;
     if (keys.current.has('a') || keys.current.has('arrowleft')) mx -= 1;
     if (keys.current.has('d') || keys.current.has('arrowright')) mx += 1;
 
-    // aim：滑鼠世界座標相對於自己 → atan2
     const self = selfPosRef.current ?? { x: ARENA_COLS / 2, y: ARENA_ROWS / 2 };
     const m = mouseWorld.current;
     const aimAngle = Math.atan2(m.y - self.y, m.x - self.x);
 
     const dash = dashPending.current;
-    dashPending.current = false;  // one-shot
+    dashPending.current = false;
 
     seq.current += 1;
     return {
@@ -96,7 +97,7 @@ export function useInputBR(arenaRef, selfPosRef) {
       shield: rightDown.current,
       dash,
     };
-  }
+  }, [selfPosRef]);
 
   return readInput;
 }
