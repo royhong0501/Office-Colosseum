@@ -42,6 +42,9 @@ export class Match {
     }
     // kill 歸功：targetId → 最後一次傷害的 sourceId
     this.lastDamageSource = new Map();
+    // client-side prediction：每位玩家最後處理的 input.seq；client reconciliation 用。
+    // 透過 buildSnapshotPayload(state, events, { acks }) 廣播。
+    this.lastSeqByPlayer = {};
   }
 
   start() {
@@ -81,6 +84,8 @@ export class Match {
 
     for (const [pid, input] of this.inputs) {
       this.state = sim.applyInput(this.state, pid, input, now);
+      // 記錄該玩家最後處理的 seq（供 client prediction reconciliation）；bot 也記錄但 client 不會關心。
+      if (typeof input.seq === 'number') this.lastSeqByPlayer[pid] = input.seq | 0;
     }
     this.inputs.clear();
     const { state } = sim.resolveTick(this.state, now);
@@ -92,7 +97,7 @@ export class Match {
     }
     this._accumulateEvents(newEvents);
 
-    this.io.emit(MSG.SNAPSHOT, sim.buildSnapshotPayload(state, newEvents));
+    this.io.emit(MSG.SNAPSHOT, sim.buildSnapshotPayload(state, newEvents, { acks: this.lastSeqByPlayer }));
 
     if (state.phase === 'ended' || sim.aliveCount(state) <= 1) this.end();
   }

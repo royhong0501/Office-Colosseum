@@ -173,6 +173,98 @@ export function sanitizeInput(raw) {
   };
 }
 
+/* ---- Reusable steps (server + client prediction 共用) -------- */
+
+/**
+ * 純位移步進：依 player.moveX/moveY × speed × dt 推進位置，X/Y 分開試以支援沿牆滑、
+ * 然後 clamp 到場地。**不**處理輸入意圖正規化、不處理 shielding 切換、不寫 events。
+ *
+ * 同時被 server resolveTick 的 player loop 與 client stepPredictLocal 呼叫，所以行為
+ * 必須完全一致——任何修改都會同步影響預測對帳，請保留 X/Y 分試 + clamp 順序。
+ */
+export function stepPlayerMovement(player, dtMs, coversSet) {
+  if (!player.alive || player.paused) return;
+  if (player.moveX === 0 && player.moveY === 0) return;
+  const speed = player.shielding ? MOVE_SPEED_SHIELD : MOVE_SPEED;
+  const dt = dtMs / 1000;
+  const step = speed * dt;
+  const nx = player.x + player.moveX * step;
+  const ny = player.y + player.moveY * step;
+  if (canStand(coversSet, nx, player.y)) player.x = nx;
+  if (canStand(coversSet, player.x, ny)) player.y = ny;
+  player.x = clamp(player.x, PLAYER_RADIUS, ARENA_COLS - PLAYER_RADIUS);
+  player.y = clamp(player.y, PLAYER_RADIUS, ARENA_ROWS - PLAYER_RADIUS);
+}
+
+/**
+ * 嘗試開火：判斷 attack + CD + !shielding，符合則推 player.shootCdUntil 並回 bullet「半成品」
+ * （不含 id）。Caller 負責 id 配發、push state.bullets / state.events（server）或當 ghost 用（client）。
+ *
+ * 純函式 from caller's perspective：唯一副作用是 mutates player.shootCdUntil。
+ */
+export function tryFireBullet(player, input, now) {
+  if (!input.attack || now < player.shootCdUntil || player.shielding) {
+    return { fired: false, bullet: null };
+  }
+  const angle = player.aimAngle;
+  const bullet = {
+    ownerId: player.id,
+    x: player.x, y: player.y,
+    vx: Math.cos(angle) * BULLET_SPEED,
+    vy: Math.sin(angle) * BULLET_SPEED,
+    angle,
+    traveled: 0,
+    spawnedAtMs: now,
+  };
+  player.shootCdUntil = now + SHOOT_CD_MS;
+  return { fired: true, bullet };
+}
+
+/**
+ * Client-side prediction：在本地對 cloned local-player snapshot 跑「輸入 → 移動」一個 tick。
+ * 不寫 state.events、不動 state.bullets、不處理 dash（dash 留 server 權威，避免錯誤回拉）。
+ *
+ * 流程跟 server 的 applyInput + resolveTick 的 player movement 完全平行：
+ *   1. 正規化 moveX/moveY
+ *   2. 套 aimAngle / facing
+ *   3. 設定 shielding（held + 耐久 + 鎖死期 都檢查；跟 server 同條件）
+ *   4. tryFireBullet → 若 fired 則回傳 ghost bullet
+ *   5. stepPlayerMovement 實際位移
+ *
+ * 回傳：mutated player（input 那個 ref）+ optional ghostBullet。
+ */
+export function stepPredictLocal(player, input, dtMs, coversSet, now) {
+  if (!player.alive || player.paused) return { player, ghostBullet: null };
+
+  // 1. 移動意圖正規化
+  const mx = input.moveX ?? 0;
+  const my = input.moveY ?? 0;
+  const len = Math.hypot(mx, my);
+  if (len > 0) {
+    player.moveX = mx / len; player.moveY = my / len;
+  } else {
+    player.moveX = 0; player.moveY = 0;
+  }
+
+  // 2. aim
+  if (typeof input.aimAngle === 'number') {
+    player.aimAngle = input.aimAngle;
+    player.facing = input.aimAngle;
+  }
+
+  // 3. shielding（held + 耐久 + 鎖死期）
+  const canShield = !!input.shield && player.shieldHp > 0 && now >= player.shieldBrokenUntil;
+  player.shielding = canShield;
+
+  // 4. fire（不 push 到任何 state，純回 ghost）
+  const fire = tryFireBullet(player, input, now);
+
+  // 5. 實際位移
+  stepPlayerMovement(player, dtMs, coversSet);
+
+  return { player, ghostBullet: fire.fired ? fire.bullet : null };
+}
+
 /* ---- applyInput ---------------------------------------------- */
 
 export function applyInput(state, playerId, input, now, rng = Math.random) {
@@ -233,22 +325,17 @@ export function applyInput(state, playerId, input, now, rng = Math.random) {
   }
 
   // 射擊（held 子彈，吃 SHOOT_CD_MS 節流）— 舉盾期間 LMB 互斥不發射
-  if (input.attack && now >= p.shootCdUntil && !p.shielding) {
-    const id = state.nextBulletId++;
-    const angle = p.aimAngle;
-    const bullet = {
-      id,
-      ownerId: playerId,
-      x: p.x, y: p.y,
-      vx: Math.cos(angle) * BULLET_SPEED,
-      vy: Math.sin(angle) * BULLET_SPEED,
-      angle,
-      traveled: 0,
-      spawnedAtMs: now,
-    };
-    state.bullets.push(bullet);
-    p.shootCdUntil = now + SHOOT_CD_MS;
-    state.events.push({ type: 'projectile_spawn', id, ownerId: playerId, x: p.x, y: p.y, angle });
+  const fire = tryFireBullet(p, input, now);
+  if (fire.fired) {
+    fire.bullet.id = state.nextBulletId++;
+    state.bullets.push(fire.bullet);
+    state.events.push({
+      type: 'projectile_spawn',
+      id: fire.bullet.id,
+      ownerId: fire.bullet.ownerId,
+      x: fire.bullet.x, y: fire.bullet.y,
+      angle: fire.bullet.angle,
+    });
   }
 
   applyEmoteInput(p, input, state, now);
@@ -262,19 +349,9 @@ export function resolveTick(state, now, rng = Math.random) {
   const dt = TICK_MS / 1000;
   state.tick += 1;
 
-  // 玩家移動（X / Y 分開試以支援沿牆滑）
+  // 玩家移動 — 抽到 stepPlayerMovement helper 與 client prediction 共用（行為等價）
   for (const p of Object.values(state.players)) {
-    if (!p.alive || p.paused) continue;
-    if (p.moveX === 0 && p.moveY === 0) continue;
-    const speed = p.shielding ? MOVE_SPEED_SHIELD : MOVE_SPEED;
-    const step = speed * dt;
-    const nx = p.x + p.moveX * step;
-    const ny = p.y + p.moveY * step;
-    if (canStand(state.map.coversSet, nx, p.y)) p.x = nx;
-    if (canStand(state.map.coversSet, p.x, ny)) p.y = ny;
-    // clamp to arena
-    p.x = clamp(p.x, PLAYER_RADIUS, ARENA_COLS - PLAYER_RADIUS);
-    p.y = clamp(p.y, PLAYER_RADIUS, ARENA_ROWS - PLAYER_RADIUS);
+    stepPlayerMovement(p, TICK_MS, state.map.coversSet);
   }
 
   // 子彈步進 + 碰撞
@@ -467,9 +544,12 @@ export function getWinner(state) {
  * 傳給 client 的 SNAPSHOT payload。poison.infected/severe 不再每 tick 全送，
  * client 從 MATCH_START 拿空 baseline，之後靠 `poison_wave` event 增量加 newCells / newSevere。
  * 只保留標量欄位（nextWaveAtMs / waveCount）給 HUD 倒數使用。
+ *
+ * opts.acks: 可選；{ [playerId]: lastProcessedSeq } 給 client-side prediction reconciliation 用。
+ *   舊 caller 不傳的話 payload 不包這個 key，行為向後相容（client 看到 undefined 會自動 fallback 到無 prediction）。
  */
-export function buildSnapshotPayload(state, newEvents) {
-  return {
+export function buildSnapshotPayload(state, newEvents, opts) {
+  const payload = {
     tick: state.tick,
     phase: state.phase,
     players: state.players,
@@ -480,6 +560,8 @@ export function buildSnapshotPayload(state, newEvents) {
     },
     events: newEvents,
   };
+  if (opts?.acks) payload.acks = opts.acks;
+  return payload;
 }
 
 /** MATCH_START 包完整初始 state + map 資料，client 取得後就可以渲染靜態地圖。 */

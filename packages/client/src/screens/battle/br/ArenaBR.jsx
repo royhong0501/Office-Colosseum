@@ -18,7 +18,7 @@ import {
 const POISON_LABELS = ['#REF!', '#VALUE!', '#NULL!'];
 
 const ArenaBR = memo(forwardRef(function ArenaBR(
-  { map, players, bullets, poison, selfId, hurtIds, activeEmotes = {} },
+  { map, players, bullets, poison, selfId, hurtIds, activeEmotes = {}, getPredictionRender = null },
   ref,
 ) {
   // 60Hz 補幀：rAF 強制本元件每幀 re-render，players / bullets 在 prev→curr 之間 lerp
@@ -27,8 +27,22 @@ const ArenaBR = memo(forwardRef(function ArenaBR(
   const playersSnap = useTrackSnapshot(players);
   const bulletsSnap = useTrackSnapshot(bullets);
   const t = lerpT(playersSnap.currAt);
-  const renderPlayers = interpolateMap(playersSnap.prev, playersSnap.curr, t);
-  const renderBullets = interpolateList(bulletsSnap.prev, bulletsSnap.curr, t);
+  const renderPlayersRaw = interpolateMap(playersSnap.prev, playersSnap.curr, t);
+  const renderBulletsRaw = interpolateList(bulletsSnap.prev, bulletsSnap.curr, t);
+
+  // client-side prediction：自己的角色用 predictedSelf 蓋掉 server 內插值（避免雙重平滑）；ghost bullets 加進渲染列表
+  let predictionGhosts = null;
+  let renderPlayers = renderPlayersRaw;
+  if (getPredictionRender) {
+    const pr = getPredictionRender();
+    if (pr?.displayedSelf && renderPlayersRaw && renderPlayersRaw[selfId]) {
+      renderPlayers = { ...renderPlayersRaw, [selfId]: { ...renderPlayersRaw[selfId], x: pr.displayedSelf.x, y: pr.displayedSelf.y, facing: pr.displayedSelf.facing, aimAngle: pr.displayedSelf.aimAngle, shielding: pr.displayedSelf.shielding ?? renderPlayersRaw[selfId].shielding } };
+    }
+    predictionGhosts = pr?.ghostBullets ?? null;
+  }
+  const renderBullets = predictionGhosts && predictionGhosts.length
+    ? [...(renderBulletsRaw ?? []), ...predictionGhosts]
+    : renderBulletsRaw;
 
   // covers 整場不變（map 切換才重算），鎖在 [map] 上避免每 tick 重建 rect 陣列
   const coverCells = useMemo(() => {

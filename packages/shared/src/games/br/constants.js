@@ -45,3 +45,15 @@ export const POISON_DPS = 5;
 export const POISON_SEVERE_MULT = 2;
 export const POISON_START_MS = 30000;    // 開場 30 秒才出第 1 波
 export const POISON_WAVE_INTERVAL_MS = 15000;
+
+// Client-side prediction（只給 client 用；server 不讀這些）
+//   - CORRECTION_THRESHOLD：predicted vs server 位置差 > 此值才啟動 lerp 修正，否則直接 snap
+//   - CORRECTION_TICKS：lerp 修正分散到幾個 tick 完成（5 tick ≈ 166ms，肉眼難察）
+//   - GHOST_BULLET_TIMEOUT_MS：ghost 子彈超過此時間沒配對到 server projectile_spawn → 視為被 server 拒絕並淡出
+//   - GHOST_DEDUPE_WINDOW_MS：本地 ghost spawnedAtMs 與 server bullet spawnedAtMs 差距在此窗內視為同一發
+//   - INPUT_BUFFER_MAX：unackedInputs 上限（防 server 長時間沒 ack 時無限堆積）
+export const PREDICTION_CORRECTION_THRESHOLD = 0.35;
+export const PREDICTION_CORRECTION_TICKS = 5;
+export const PREDICTION_GHOST_BULLET_TIMEOUT_MS = 300;
+export const PREDICTION_GHOST_DEDUPE_WINDOW_MS = 150;
+export const PREDICTION_INPUT_BUFFER_MAX = 90;

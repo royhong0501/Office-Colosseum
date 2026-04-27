@@ -8,6 +8,7 @@ import SheetWindow from '../../../components/SheetWindow.jsx';
 import ArenaBR from './ArenaBR.jsx';
 import BattleHudBR from './BattleHudBR.jsx';
 import { useInputBR } from './useInputBR.js';
+import { usePredictionBR } from './usePredictionBR.js';
 import { useEmoteInput } from '../useEmoteInput.js';
 import { useEmoteFeed } from '../useEmoteFeed.js';
 import EmoteBar from '../../../components/EmoteBar.jsx';
@@ -42,6 +43,11 @@ export default function BattleRoyale({ initialState, config, onEnd, readOnly = f
   const [now, setNow] = useState(Date.now());
   const nextFloaterId = useRef(1);
 
+  // 觀戰模式不預測（沒有自己的角色可預測）；初始 self 給 hook 種子
+  const initialSelf = !readOnly ? (initialState?.state?.players?.[selfId] ?? null) : null;
+  const mapCovers = initialState?.state?.map?.covers ?? null;
+  const { pushInput: predictionPush, applySnapshot: predictionApply, getRender: predictionGetRender } = usePredictionBR({ selfId, mapCovers, initialSelf });
+
   // 每 tick 更新 now（for HUD 倒數）
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 100);
@@ -63,11 +69,17 @@ export default function BattleRoyale({ initialState, config, onEnd, readOnly = f
         if (emote != null && Date.now() >= selfCooldownUntil) {
           setSelfCooldownUntil(Date.now() + EMOTE_CD_MS);
         }
-        socket.emit(MSG.INPUT, { ...baseInput, emote });
+        const fullInput = { ...baseInput, emote };
+        // client-side prediction：本地立刻推進 predictedSelf（送 INPUT 之前先做，這樣 emit 是 fire-and-forget）
+        predictionPush(fullInput);
+        // aim 用的 selfPosRef 跟著 predictedSelf 走，下一個 tick 的 readInput() 拿到的是預測位置
+        const r = predictionGetRender();
+        if (r.displayedSelf) selfPosRef.current = { x: r.displayedSelf.x, y: r.displayedSelf.y };
+        socket.emit(MSG.INPUT, fullInput);
       } catch (e) { /* ignore */ }
     }, TICK_MS);
     return () => clearInterval(id);
-  }, [phase, readInput, socket, readOnly, consumeEmote, selfCooldownUntil]);
+  }, [phase, readInput, socket, readOnly, consumeEmote, selfCooldownUntil, predictionPush, predictionGetRender]);
 
   // 訂閱 SNAPSHOT / MATCH_END
   useEffect(() => {
@@ -84,9 +96,22 @@ export default function BattleRoyale({ initialState, config, onEnd, readOnly = f
         }));
       }
       if (snap.phase) setPhase(snap.phase);
-      // 更新 selfPosRef（供 aim 計算）
-      const me = snap.players?.[selfId];
-      if (me) selfPosRef.current = { x: me.x, y: me.y };
+      // client-side prediction reconciliation：必須在 selfPosRef 同步前做
+      // （applySnapshot 會更新 predictedSelf，下面 selfPosRef 才能拿到最新預測值）
+      if (!readOnly) predictionApply(snap);
+      // 更新 selfPosRef（供 aim 計算）— 優先用 prediction 的 displayedSelf；fallback 才用 server me
+      if (!readOnly) {
+        const r = predictionGetRender();
+        if (r.displayedSelf) {
+          selfPosRef.current = { x: r.displayedSelf.x, y: r.displayedSelf.y };
+        } else {
+          const me = snap.players?.[selfId];
+          if (me) selfPosRef.current = { x: me.x, y: me.y };
+        }
+      } else {
+        const me = snap.players?.[selfId];
+        if (me) selfPosRef.current = { x: me.x, y: me.y };
+      }
       // 處理 events
       if (Array.isArray(snap.events)) processEvents(snap.events);
     };
@@ -100,7 +125,7 @@ export default function BattleRoyale({ initialState, config, onEnd, readOnly = f
       socket.off(MSG.MATCH_END, onMatchEnd);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selfId]);
+  }, [selfId, readOnly, predictionApply, predictionGetRender]);
 
   function addFloater(x, y, text, color) {
     const id = nextFloaterId.current++;
@@ -248,6 +273,7 @@ export default function BattleRoyale({ initialState, config, onEnd, readOnly = f
             selfId={selfId}
             hurtIds={hurtIds}
             activeEmotes={activeEmotes}
+            getPredictionRender={readOnly ? null : predictionGetRender}
           />
           {/* 飄字 overlay（HTML 層） */}
           <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>

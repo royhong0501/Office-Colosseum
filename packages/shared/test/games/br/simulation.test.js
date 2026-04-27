@@ -9,6 +9,9 @@ import {
   POISON_DPS, POISON_SEVERE_MULT, POISON_START_MS, POISON_WAVE_INTERVAL_MS,
   ARENA_COLS, ARENA_ROWS,
   SHOOT_CD_MS, DASH_CD_MS, DASH_INVULN_MS,
+  MOVE_SPEED, MOVE_SPEED_SHIELD,
+  stepPredictLocal, stepPlayerMovement, tryFireBullet,
+  buildSnapshotPayload,
 } from '../../../src/games/br/index.js';
 import { TICK_MS } from '../../../src/constants.js';
 
@@ -350,4 +353,108 @@ test('br/applyInput：paused 玩家不能 emote', () => {
   applyInput(s, 'p1', emptyInput({ emote: 1 }), 1000);
   const emoteEvents = s.events.filter(e => e.kind === 'emote' && e.playerId === 'p1');
   assert.equal(emoteEvents.length, 0);
+});
+
+/* ---- client-side prediction helpers ---- */
+
+test('stepPredictLocal：moveX=1 推進大約 MOVE_SPEED * dt 距離', () => {
+  const s = createInitialState(players2, config0, startedAtMs);
+  const p = { ...s.players['p1'] };
+  // 找一個確定可走的點（地圖左下安全區）
+  p.x = 1; p.y = 12; p.moveX = 0; p.moveY = 0;
+  const result = stepPredictLocal(p, emptyInput({ moveX: 1, aimAngle: 0 }), TICK_MS, s.map.coversSet, 0);
+  const expected = MOVE_SPEED * (TICK_MS / 1000);
+  assert.ok(Math.abs(result.player.x - (1 + expected)) < 1e-6, `expected x≈${1 + expected}, got ${result.player.x}`);
+  assert.equal(result.ghostBullet, null);
+});
+
+test('stepPredictLocal：cover 阻擋方向上不推進', () => {
+  const s = createInitialState(players2, config0, startedAtMs);
+  // 找一塊 cover，把玩家放它左邊一格內，向右移
+  const [cc, cr, cw] = MAPS[0].covers[0]; // [4, 2, 2, 2] 之類
+  const p = { ...s.players['p1'] };
+  p.x = cc - 0.5;
+  p.y = cr + 0.5;  // cover 同一 row
+  const before = p.x;
+  const result = stepPredictLocal(p, emptyInput({ moveX: 1, aimAngle: 0 }), TICK_MS, s.map.coversSet, 0);
+  // 向右會撞到 cover，X 不該推到 cover 內（最多到 cover 邊界）
+  assert.ok(result.player.x <= cc - 0.4, `expected x clamped near cover left edge, got ${result.player.x}`);
+  // 必須有移動嘗試（即便被擋）— moveX 仍被記成正規化 1
+  assert.equal(result.player.moveX, 1);
+});
+
+test('stepPredictLocal：attack && CD 過 → 回 ghostBullet 且推 shootCdUntil', () => {
+  const s = createInitialState(players2, config0, startedAtMs);
+  const p = { ...s.players['p1'] };
+  p.x = 5; p.y = 5; p.shootCdUntil = 0;
+  const now = 1000;
+  const result = stepPredictLocal(p, emptyInput({ attack: true, aimAngle: 0 }), TICK_MS, s.map.coversSet, now);
+  assert.ok(result.ghostBullet, 'ghostBullet 應存在');
+  assert.equal(result.ghostBullet.ownerId, 'p1');
+  assert.equal(result.player.shootCdUntil, now + SHOOT_CD_MS);
+});
+
+test('stepPredictLocal：attack 但 CD 未過 → 不開火', () => {
+  const s = createInitialState(players2, config0, startedAtMs);
+  const p = { ...s.players['p1'] };
+  p.x = 5; p.y = 5; p.shootCdUntil = 999;
+  const result = stepPredictLocal(p, emptyInput({ attack: true, aimAngle: 0 }), TICK_MS, s.map.coversSet, 500);
+  assert.equal(result.ghostBullet, null);
+  assert.equal(result.player.shootCdUntil, 999);
+});
+
+test('stepPredictLocal：shielding 條件正確（耐久 + 鎖死期）', () => {
+  const s = createInitialState(players2, config0, startedAtMs);
+  const p = { ...s.players['p1'] };
+  p.shieldHp = 100; p.shieldBrokenUntil = 0;
+  let r = stepPredictLocal(p, emptyInput({ shield: true }), TICK_MS, s.map.coversSet, 1000);
+  assert.equal(r.player.shielding, true);
+
+  // 鎖死期內舉不起來
+  p.shielding = false; p.shieldBrokenUntil = 5000;
+  r = stepPredictLocal(p, emptyInput({ shield: true }), TICK_MS, s.map.coversSet, 1000);
+  assert.equal(r.player.shielding, false);
+
+  // 耐久=0 舉不起來
+  p.shieldBrokenUntil = 0; p.shieldHp = 0;
+  r = stepPredictLocal(p, emptyInput({ shield: true }), TICK_MS, s.map.coversSet, 1000);
+  assert.equal(r.player.shielding, false);
+});
+
+test('stepPredictLocal：dead/paused 不動', () => {
+  const s = createInitialState(players2, config0, startedAtMs);
+  const p1 = { ...s.players['p1'], alive: false };
+  const before1 = { x: p1.x, y: p1.y };
+  stepPredictLocal(p1, emptyInput({ moveX: 1 }), TICK_MS, s.map.coversSet, 0);
+  assert.equal(p1.x, before1.x);
+  assert.equal(p1.y, before1.y);
+
+  const p2 = { ...s.players['p1'], paused: true };
+  const before2 = { x: p2.x, y: p2.y };
+  stepPredictLocal(p2, emptyInput({ moveX: 1 }), TICK_MS, s.map.coversSet, 0);
+  assert.equal(p2.x, before2.x);
+  assert.equal(p2.y, before2.y);
+});
+
+test('stepPredictLocal：與 server 路徑（applyInput+resolveTick）位移結果一致', () => {
+  // 同樣的初始 state + input，跑 server 路徑 vs predict 路徑，alive 玩家位置應相同
+  const s1 = createInitialState(players2, config0, startedAtMs);
+  const s2 = createInitialState(players2, config0, startedAtMs);
+  const input = { seq: 1, moveX: 1, moveY: 0, aimAngle: 0, attack: false, shield: false, dash: false };
+  // server 路徑
+  applyInput(s1, 'p1', input, 0);
+  resolveTick(s1, 0);
+  // predict 路徑
+  const p2 = s2.players['p1'];
+  stepPredictLocal(p2, input, TICK_MS, s2.map.coversSet, 0);
+  assert.ok(Math.abs(s1.players['p1'].x - p2.x) < 1e-6, `server.x=${s1.players['p1'].x} vs predict.x=${p2.x}`);
+  assert.ok(Math.abs(s1.players['p1'].y - p2.y) < 1e-6);
+});
+
+test('buildSnapshotPayload：opts.acks 正確包進 payload，舊 caller 不影響', () => {
+  const s = createInitialState(players2, config0, startedAtMs);
+  const noAck = buildSnapshotPayload(s, []);
+  assert.equal('acks' in noAck, false, '舊 caller 不傳 opts → payload 不應有 acks key');
+  const withAck = buildSnapshotPayload(s, [], { acks: { p1: 42 } });
+  assert.deepEqual(withAck.acks, { p1: 42 });
 });
