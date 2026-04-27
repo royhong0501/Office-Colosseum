@@ -355,3 +355,8 @@ export function buildMatchStartPayload(state, config) {
     },
   };
 }
+
+/** SPECTATE_INIT — 觀戰者中途加入；items state 沒有 Set/特殊結構，直接重用同 payload */
+export function buildSpectatorInitPayload(state, config) {
+  return buildMatchStartPayload(state, config);
+}

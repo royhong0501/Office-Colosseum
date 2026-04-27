@@ -6,6 +6,10 @@ import {
 } from '@office-colosseum/shared/src/games/items/constants.js';
 import { getCharacterById } from '@office-colosseum/shared';
 import { CharacterSpriteSvg } from '../../../components/CharacterSprite.jsx';
+import {
+  useRafTick, useTrackSnapshot, lerpT,
+  interpolateMap, interpolateList,
+} from '../../../hooks/useInterpolation.js';
 
 const TRAP_STYLE = {
   freeze:   { fill: '#bdd7e6', glyph: '❄', color: '#2f5a7a' },
@@ -18,18 +22,27 @@ const ArenaItems = memo(forwardRef(function ArenaItems(
   { players, bullets, traps, selfId, hurtIds, now },
   ref,
 ) {
-  const trapEls = (traps ?? []).map((t) => {
-    const s = TRAP_STYLE[t.kind] ?? { fill: '#ccc', glyph: '?', color: '#333' };
+  // 60Hz 補幀（同 ArenaBR）。traps 是靜態不需要補。
+  // validate trap 隨機傳送會讓位置跳很遠，hook 內部 teleport 距離 > 3 cells 自動 snap。
+  useRafTick();
+  const playersSnap = useTrackSnapshot(players);
+  const bulletsSnap = useTrackSnapshot(bullets);
+  const t = lerpT(playersSnap.currAt);
+  const renderPlayers = interpolateMap(playersSnap.prev, playersSnap.curr, t);
+  const renderBullets = interpolateList(bulletsSnap.prev, bulletsSnap.curr, t);
+
+  const trapEls = (traps ?? []).map((trap) => {
+    const s = TRAP_STYLE[trap.kind] ?? { fill: '#ccc', glyph: '?', color: '#333' };
     return (
-      <g key={`trap-${t.id}`}>
-        <rect x={t.cx} y={t.cy} width={1} height={1} fill={s.fill} stroke="var(--line)" strokeWidth={0.04} opacity={0.85} />
-        <text x={t.cx + 0.5} y={t.cy + 0.7} textAnchor="middle" fontSize="0.55" fill={s.color}>{s.glyph}</text>
+      <g key={`trap-${trap.id}`}>
+        <rect x={trap.cx} y={trap.cy} width={1} height={1} fill={s.fill} stroke="var(--line)" strokeWidth={0.04} opacity={0.85} />
+        <text x={trap.cx + 0.5} y={trap.cy + 0.7} textAnchor="middle" fontSize="0.55" fill={s.color}>{s.glyph}</text>
       </g>
     );
   });
 
   const playerEls = [];
-  for (const p of Object.values(players ?? {})) {
+  for (const p of Object.values(renderPlayers ?? {})) {
     if (!p.alive) continue;
     const ch = getCharacterById(p.characterId);
     const isSelf = p.id === selfId;
@@ -74,7 +87,7 @@ const ArenaItems = memo(forwardRef(function ArenaItems(
     );
   }
 
-  const bulletEls = (bullets ?? []).map((b) => (
+  const bulletEls = (renderBullets ?? []).map((b) => (
     <circle key={b.id} cx={b.x} cy={b.y} r={PROJECTILE_RADIUS} fill="#DAA520" stroke="var(--ink)" strokeWidth={0.015} />
   ));
 

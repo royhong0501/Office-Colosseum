@@ -19,8 +19,10 @@ enum Role {
 }
 
 enum ChatChannel {
-  PUBLIC
-  DM
+  PUBLIC      // 大廳全站公頻
+  ANNOUNCE    // 公告頻道（僅 ADMIN 可發訊）
+  ROOM        // 房間頻道（roomId 必填，限該房內玩家 + 觀戰者可讀寫）
+  DM          // 1-on-1 私訊
 }
 
 model User {
@@ -86,11 +88,34 @@ model ChatMessage {
   sender      User        @relation("ChatSender", fields: [senderId], references: [id], onDelete: Cascade)
   recipientId String?
   recipient   User?       @relation("ChatRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  // ROOM 頻道時必填；其他頻道為 null。 in-memory roomId（不對 FK，因為 Room 是 server runtime 物件）
+  roomId      String?
+  // 訊息回覆：reply 到同 channel 的另一則訊息
+  replyToId   String?
+  replyTo     ChatMessage?  @relation("ChatReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies     ChatMessage[] @relation("ChatReply")
   content     String      @db.VarChar(500)
+  // metadata JSON：目前存 { mentions: [userId, ...] }，將來可擴
+  metadata    Json        @default("{}")
   createdAt   DateTime    @default(now())
+  // 舊 boolean readAt（DM 用）保留 backward-compat；新功能改用 ChatMessageRead 表算 readByCount
   readAt      DateTime?
+  reads       ChatMessageRead[]
 
   @@index([channel, createdAt])
+  @@index([roomId, createdAt])
   @@index([recipientId, readAt])
   @@index([senderId, recipientId, createdAt])
+}
+
+// 已讀記錄：每則訊息每位讀者一筆，用 upsert 累計「已讀 N」
+model ChatMessageRead {
+  id        String      @id @default(cuid())
+  messageId String
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  readAt    DateTime    @default(now())
+
+  @@unique([messageId, userId])
+  @@index([userId])
 }

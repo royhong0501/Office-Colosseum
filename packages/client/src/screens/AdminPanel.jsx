@@ -21,12 +21,26 @@ const btn = (kind = 'normal') => ({
   cursor: 'pointer', letterSpacing: 0.5,
 });
 
+// 仿 .mc-tag 的小型標籤，給 ROLE / STATUS 用：1px 邊框 + 大寫等寬
+const tagStyle = (color) => ({
+  display: 'inline-block',
+  padding: '1px 6px',
+  fontSize: 10,
+  fontFamily: 'var(--font-mono)',
+  letterSpacing: 0.6,
+  border: `1px solid ${color}`,
+  color,
+  background: 'transparent',
+  textTransform: 'uppercase',
+});
+
 export default function AdminPanel({ onBack }) {
   const me = getCurrentUser();
   const [users, setUsers] = useState([]);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [createForm, setCreateForm] = useState({ username: '', password: '', displayName: '', role: 'PLAYER' });
+  const [hoverRow, setHoverRow] = useState(null);
 
   const reload = async () => {
     setBusy(true);
@@ -49,9 +63,12 @@ export default function AdminPanel({ onBack }) {
     e.preventDefault();
     setError(null);
     try {
+      // 空 displayName 不要塞（server 的 zod schema 視為 optional，但空字串會 fail min(1)）
+      const body = { ...createForm };
+      if (!body.displayName?.trim()) delete body.displayName;
       const res = await fetchAuthed('/admin/users', {
         method: 'POST',
-        body: JSON.stringify(createForm),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -168,42 +185,53 @@ export default function AdminPanel({ onBack }) {
           <div style={{
             padding: '8px 12px', background: 'var(--bg-cell-header)',
             borderBottom: '1px solid var(--line-soft)',
-            display: 'grid', gridTemplateColumns: '1.4fr 1.6fr 1fr 1fr 1.2fr 200px',
+            display: 'grid', gridTemplateColumns: '1.4fr 1.6fr 1fr 1fr 1.2fr 160px',
             fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)',
+            letterSpacing: 0.8,
           }}>
             <span>USERNAME</span>
             <span>DISPLAY NAME</span>
             <span>ROLE</span>
             <span>STATUS</span>
             <span>LAST LOGIN</span>
-            <span style={{ textAlign: 'right' }}>操作</span>
+            <span>操作</span>
           </div>
           {users.length === 0 ? (
             <div style={{ padding: '14px 12px', fontSize: 11, color: 'var(--ink-muted)' }}>
               #N/A — 尚無使用者
             </div>
           ) : users.map((u, i) => (
-            <div key={u.id} style={{
-              padding: '8px 12px',
-              borderBottom: i < users.length - 1 ? '1px solid var(--line-soft)' : 'none',
-              display: 'grid', gridTemplateColumns: '1.4fr 1.6fr 1fr 1fr 1.2fr 200px',
-              fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--ink)',
-              alignItems: 'center',
-              opacity: u.disabled ? 0.5 : 1,
-            }}>
+            <div
+              key={u.id}
+              onMouseEnter={() => setHoverRow(u.id)}
+              onMouseLeave={() => setHoverRow(null)}
+              style={{
+                padding: '8px 12px',
+                borderBottom: i < users.length - 1 ? '1px solid var(--line-soft)' : 'none',
+                display: 'grid', gridTemplateColumns: '1.4fr 1.6fr 1fr 1fr 1.2fr 160px',
+                fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--ink)',
+                alignItems: 'center',
+                opacity: u.disabled ? 0.55 : 1,
+                background: hoverRow === u.id ? 'var(--bg-paper-alt)' : 'transparent',
+                transition: 'background 0.08s linear',
+              }}
+            >
               <span>{u.username}</span>
               <span>{u.displayName}</span>
-              <span style={{
-                color: u.role === 'ADMIN' ? 'var(--accent)' : 'var(--ink-soft)',
-                fontWeight: 600, letterSpacing: 0.5,
-              }}>{u.role}</span>
-              <span style={{ color: u.disabled ? 'var(--accent-danger)' : 'var(--ink-soft)' }}>
-                {u.disabled ? 'DISABLED' : 'ACTIVE'}
+              <span>
+                <span style={tagStyle(u.role === 'ADMIN' ? 'var(--accent-danger)' : 'var(--ink-muted)')}>
+                  {u.role}
+                </span>
+              </span>
+              <span>
+                <span style={tagStyle(u.disabled ? 'var(--ink-muted)' : 'var(--accent)')}>
+                  {u.disabled ? 'DISABLED' : 'ACTIVE'}
+                </span>
               </span>
               <span style={{ color: 'var(--ink-muted)' }}>
                 {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : '—'}
               </span>
-              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-start' }}>
                 <button
                   type="button"
                   onClick={() => toggleDisabled(u)}

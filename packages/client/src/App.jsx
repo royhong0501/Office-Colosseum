@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { applyTheme, loadTheme } from './theme/themeVars.js';
 import MainMenu from './screens/MainMenu.jsx';
-import ModeSelect from './screens/ModeSelect.jsx';
 import Lobby from './screens/Lobby.jsx';
-import MapSelectBR from './screens/battle/br/MapSelect.jsx';
+import Room from './screens/Room.jsx';
+import SpectatorBattle from './screens/SpectatorBattle.jsx';
 import NetworkedBattle from './screens/NetworkedBattle.jsx';
 import GameOver from './screens/GameOver.jsx';
 import BossKey from './screens/BossKey.jsx';
@@ -15,6 +15,7 @@ import { useBossKey } from './hooks/useBossKey.js';
 import { useSocketStatus } from './hooks/useSocketStatus.js';
 import ConnectionBanner from './components/ConnectionBanner.jsx';
 import ChatPanel from './components/ChatPanel.jsx';
+import DebugOverlay from './components/DebugOverlay.jsx';
 import { getSocket, reconnectSocket, disconnectSocket } from './net/socket.js';
 import { MSG } from '@office-colosseum/shared';
 import {
@@ -22,10 +23,12 @@ import {
 } from './lib/auth.js';
 
 const CHAT_OPEN_KEY = 'oc.chat.open';
-const SCREENS_WITHOUT_CHAT = new Set(['auth', 'battle', 'gameover']);
+// chat 浮動 dock 預設常駐；只有 auth 不顯示（避免登入前打擾）
+const SCREENS_WITHOUT_CHAT = new Set(['auth']);
 
-// 多遊戲平台 screen 流程：
-//   auth → menu → modeSelect → [mapSelect (BR only)] → lobby → battle → gameover
+// 多房遊戲平台 screen 流程：
+//   auth → menu → lobby (多房列表) → room (單房內頁) → battle → gameover
+//   lobby → spectate (觀戰，不進房)
 //   menu → characters / history / admin (獨立頁)
 
 export default function App() {
@@ -59,10 +62,28 @@ export default function App() {
     return () => window.removeEventListener('oc:auth-cleared', onCleared);
   }, []);
 
+  // Debug overlay（FPS / PING / DROP25）：預設常駐顯示。
+  // 仍保留 Ctrl+` 切換（跟 VS Code terminal toggle 一致），不想看就關掉。
+  const [debugVisible, setDebugVisible] = useState(true);
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.ctrlKey && (e.key === '`' || e.code === 'Backquote')) {
+        e.preventDefault();
+        setDebugVisible(v => !v);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const [matchStart, setMatchStart] = useState(null);
   const [matchEnd, setMatchEnd] = useState(null);
   const [gameType, setGameType] = useState(null);
   const [config, setConfig] = useState({});
+  // 進入某 Room 後留下房間資訊（mode / mapId / roomName / roomId）給 Room 元件
+  const [roomInfo, setRoomInfo] = useState(null);
+  // 觀戰中目標 roomId（SpectatorBattle 在 mount 時 emit SPECTATE_ROOM）
+  const [spectateRoomId, setSpectateRoomId] = useState(null);
   const [chatOpen, setChatOpen] = useState(() => {
     const v = localStorage.getItem(CHAT_OPEN_KEY);
     return v == null ? true : v === '1';
@@ -86,7 +107,7 @@ export default function App() {
     content = (
       <MainMenu
         user={user}
-        onStart={() => setScreen('modeSelect')}
+        onStart={() => setScreen('lobby')}
         onOpenCharacters={() => setScreen('characters')}
         onOpenHistory={() => setScreen('history')}
         onOpenAdmin={isAdmin() ? () => setScreen('admin') : null}
@@ -99,32 +120,34 @@ export default function App() {
     content = <MatchHistory onBack={() => setScreen('menu')} />;
   } else if (screen === 'admin') {
     content = <AdminPanel onBack={() => setScreen('menu')} />;
-  } else if (screen === 'modeSelect') {
-    content = (
-      <ModeSelect
-        onModeSelected={(id) => {
-          setGameType(id);
-          setConfig({});
-          if (id === 'battle-royale') setScreen('mapSelect');
-          else setScreen('lobby');
-        }}
-        onBack={() => setScreen('menu')}
-      />
-    );
-  } else if (screen === 'mapSelect') {
-    content = (
-      <MapSelectBR
-        onConfirm={(mapId) => { setConfig({ mapId }); setScreen('lobby'); }}
-        onBack={() => { setGameType(null); setConfig({}); setScreen('modeSelect'); }}
-      />
-    );
   } else if (screen === 'lobby') {
     content = (
       <Lobby
+        onJoinRoom={(info) => {
+          setRoomInfo(info);
+          setGameType(info?.mode ?? null);
+          setConfig(info?.mapId ? { mapId: info.mapId } : {});
+          setScreen('room');
+        }}
+        onSpectate={(roomId) => { setSpectateRoomId(roomId); setScreen('spectate'); }}
+        onBack={() => setScreen('menu')}
+      />
+    );
+  } else if (screen === 'spectate') {
+    content = (
+      <SpectatorBattle
+        roomId={spectateRoomId}
+        onLeave={() => { setSpectateRoomId(null); setScreen('lobby'); }}
+      />
+    );
+  } else if (screen === 'room') {
+    content = (
+      <Room
         gameType={gameType}
         config={config}
+        gameName={roomInfo?.roomName}
         onMatchStart={(ms) => { setMatchStart(ms); setScreen('battle'); }}
-        onBack={() => { setGameType(null); setConfig({}); setScreen('modeSelect'); }}
+        onBack={() => { setRoomInfo(null); setScreen('lobby'); }}
       />
     );
   } else if (screen === 'battle') {
@@ -146,28 +169,34 @@ export default function App() {
         players={matchEnd?.players ?? {}}
         onBack={() => {
           getSocket().emit(MSG.READY, { ready: false });
-          setScreen('lobby');
+          setScreen('room');
         }}
       />
     );
   }
 
   const showChat = !SCREENS_WITHOUT_CHAT.has(screen);
+  // 在房間 / 觀戰時 chat 會多一個「房間頻道」分頁；其他畫面 currentRoomId 為 null
+  const currentRoomId = (screen === 'room' || screen === 'spectate')
+    ? (roomInfo?.roomId ?? spectateRoomId ?? null)
+    : null;
 
   return (
     <>
       {hidden && <BossKey />}
       <ConnectionBanner status={connStatus} />
       <div style={{ visibility: hidden ? 'hidden' : 'visible', height: '100%' }}>
-        {showChat ? (
-          <div style={{ display: 'flex', height: '100vh', width: '100%' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              {content}
-            </div>
-            <ChatPanel open={chatOpen} onToggle={setChatOpenPersist} />
-          </div>
-        ) : content}
+        {content}
       </div>
+      {showChat && (
+        <ChatPanel
+          open={chatOpen}
+          onToggle={setChatOpenPersist}
+          currentRoomId={currentRoomId}
+        />
+      )}
+      {/* 只在戰鬥畫面顯示 debug overlay；其他畫面（lobby/menu/auth/...）一律不掛 */}
+      <DebugOverlay visible={debugVisible && (screen === 'battle' || screen === 'spectate')} />
     </>
   );
 }

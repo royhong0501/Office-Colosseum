@@ -330,3 +330,8 @@ export function buildMatchStartPayload(state, config) {
     },
   };
 }
+
+/** SPECTATE_INIT — 觀戰者中途加入；territory state 含完整 cells，直接送一次當前 snapshot 當 baseline。 */
+export function buildSpectatorInitPayload(state, config) {
+  return buildMatchStartPayload(state, config);
+}

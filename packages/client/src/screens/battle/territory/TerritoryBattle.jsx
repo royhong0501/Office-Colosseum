@@ -10,7 +10,7 @@ import { useInputTerritory } from './useInputTerritory.js';
 
 const LOG_LIMIT = 10;
 
-export default function TerritoryBattle({ initialState, config, onEnd }) {
+export default function TerritoryBattle({ initialState, config, onEnd, readOnly = false }) {
   const socket = getSocket();
   const selfId = socket.id;
 
@@ -33,12 +33,13 @@ export default function TerritoryBattle({ initialState, config, onEnd }) {
 
   const readInput = useInputTerritory();
   useEffect(() => {
+    if (readOnly) return undefined;
     const id = setInterval(() => {
       if (phase !== 'playing') return;
       try { socket.emit(MSG.INPUT, readInput()); } catch (e) { /* ignore */ }
     }, TICK_MS);
     return () => clearInterval(id);
-  }, [phase, readInput, socket]);
+  }, [phase, readInput, socket, readOnly]);
 
   useEffect(() => {
     const onSnapshot = (snap) => {

@@ -6,11 +6,19 @@ import {
 } from '@office-colosseum/shared/src/games/territory/constants.js';
 import { getCharacterById } from '@office-colosseum/shared';
 import { CharacterSpriteSvg } from '../../../components/CharacterSprite.jsx';
+import {
+  useRafTick, useTrackSnapshot, lerpT, interpolateMap,
+} from '../../../hooks/useInterpolation.js';
 
 const ArenaTerritory = memo(forwardRef(function ArenaTerritory(
   { teams, players, cells, selfId },
   ref,
 ) {
+  // 60Hz 補幀，只補 players（cells 是 server 增量更新的塗色，不需 lerp）
+  useRafTick();
+  const playersSnap = useTrackSnapshot(players);
+  const renderPlayers = interpolateMap(playersSnap.prev, playersSnap.curr, lerpT(playersSnap.currAt));
+
   const teamColor = (tid) => {
     const t = teams?.find((x) => x.id === tid);
     return t?.color ?? { base: '#ccc', deep: '#999' };
@@ -26,7 +34,7 @@ const ArenaTerritory = memo(forwardRef(function ArenaTerritory(
   }
 
   const playerEls = [];
-  for (const p of Object.values(players ?? {})) {
+  for (const p of Object.values(renderPlayers ?? {})) {
     if (!p.alive) continue;
     const ch = getCharacterById(p.characterId);
     const col = teamColor(p.teamId);

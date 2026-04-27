@@ -55,7 +55,10 @@ test('createRoom: 第一間房，socket 被放進 room、收到 ROOM_JOINED、ha
   assert.ok(!s.rooms.has('hall'));
 
   const joined = lastEmit(s, MSG.ROOM_JOINED);
-  assert.deepEqual(joined, { roomId: 'room-1', roomName: 'A-room' });
+  // payload 含 roomId / roomName / mode / mapId（後兩者可能為 null）
+  assert.equal(joined?.roomId, 'room-1');
+  assert.equal(joined?.roomName, 'A-room');
+  assert.ok('mode' in joined);
 
   const hallEmits = io.channelEmits.get('hall') ?? [];
   assert.ok(hallEmits.some((e) => e.event === MSG.ROOMS_LIST));
