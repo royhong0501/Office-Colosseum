@@ -14,6 +14,7 @@ import {
   POISON_DPS, POISON_SEVERE_MULT, POISON_START_MS, POISON_WAVE_INTERVAL_MS,
 } from './constants.js';
 import { expandCovers, autoSpawns, pickMap, getMapById } from './maps.js';
+import { applyEmoteInput } from '../../emotes.js';
 
 export const GAME_ID = 'battle-royale';
 export const NAME = '經典大逃殺';
@@ -143,6 +144,7 @@ export function createInitialState(players, config = {}, startedAtMs = Date.now(
       invulnUntil: 0,
       lastPoisonTickAt: 0,
       lastHurtAt: 0,
+      emoteCdUntil: 0,
     };
     i++;
   }
@@ -156,6 +158,9 @@ export function createInitialState(players, config = {}, startedAtMs = Date.now(
 export function sanitizeInput(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const num = (v) => (Number.isFinite(v) ? v : 0);
+  const emote = (Number.isInteger(raw.emote) && raw.emote >= 1 && raw.emote <= 6)
+    ? raw.emote
+    : null;
   return {
     seq: Number.isFinite(raw.seq) ? (raw.seq | 0) : 0,
     moveX: num(raw.moveX),
@@ -164,6 +169,7 @@ export function sanitizeInput(raw) {
     attack: !!raw.attack,
     shield: !!raw.shield,
     dash: !!raw.dash,
+    emote,
   };
 }
 
@@ -171,7 +177,13 @@ export function sanitizeInput(raw) {
 
 export function applyInput(state, playerId, input, now, rng = Math.random) {
   const p = state.players[playerId];
-  if (!p || !p.alive || p.paused) return state;
+  if (!p) return state;
+
+  // 死亡 / paused 仍允許 emote（社交訊號），但其他輸入跳過
+  if (!p.alive || p.paused) {
+    applyEmoteInput(p, input, state, now);
+    return state;
+  }
 
   // 移動向量（resolveTick 才真的位移，這裡只記錄意圖）
   const mx = input.moveX ?? 0;
@@ -238,6 +250,8 @@ export function applyInput(state, playerId, input, now, rng = Math.random) {
     p.shootCdUntil = now + SHOOT_CD_MS;
     state.events.push({ type: 'projectile_spawn', id, ownerId: playerId, x: p.x, y: p.y, angle });
   }
+
+  applyEmoteInput(p, input, state, now);
 
   return state;
 }
