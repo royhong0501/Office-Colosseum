@@ -9,6 +9,10 @@ import {
 } from '@office-colosseum/shared/src/games/br/constants.js';
 import { getCharacterById } from '@office-colosseum/shared';
 import { CharacterSpriteSvg } from '../../../components/CharacterSprite.jsx';
+import {
+  useRafTick, useTrackSnapshot, lerpT,
+  interpolateMap, interpolateList,
+} from '../../../hooks/useInterpolation.js';
 
 const POISON_LABELS = ['#REF!', '#VALUE!', '#NULL!'];
 
@@ -16,6 +20,15 @@ const ArenaBR = memo(forwardRef(function ArenaBR(
   { map, players, bullets, poison, selfId, hurtIds },
   ref,
 ) {
+  // 60Hz 補幀：rAF 強制本元件每幀 re-render，players / bullets 在 prev→curr 之間 lerp
+  // server 仍 30Hz 權威；視覺位置滯後一個 tick (33ms)；teleport 跳超過 3 cells 不補。
+  useRafTick();
+  const playersSnap = useTrackSnapshot(players);
+  const bulletsSnap = useTrackSnapshot(bullets);
+  const t = lerpT(playersSnap.currAt);
+  const renderPlayers = interpolateMap(playersSnap.prev, playersSnap.curr, t);
+  const renderBullets = interpolateList(bulletsSnap.prev, bulletsSnap.curr, t);
+
   // covers 整場不變（map 切換才重算），鎖在 [map] 上避免每 tick 重建 rect 陣列
   const coverCells = useMemo(() => {
     const cells = [];
@@ -62,7 +75,7 @@ const ArenaBR = memo(forwardRef(function ArenaBR(
   }
 
   const playerEls = [];
-  for (const p of Object.values(players ?? {})) {
+  for (const p of Object.values(renderPlayers ?? {})) {
     if (!p.alive) continue;
     const ch = getCharacterById(p.characterId);
     const isSelf = p.id === selfId;
@@ -120,7 +133,7 @@ const ArenaBR = memo(forwardRef(function ArenaBR(
     );
   }
 
-  const bulletEls = (bullets ?? []).map((b) => (
+  const bulletEls = (renderBullets ?? []).map((b) => (
     <g key={b.id}>
       <circle cx={b.x} cy={b.y} r={PROJECTILE_RADIUS + 0.04} fill="#DAA520" opacity="0.3" />
       <circle cx={b.x} cy={b.y} r={PROJECTILE_RADIUS} fill="#DAA520" stroke="var(--ink)" strokeWidth={0.015} />
