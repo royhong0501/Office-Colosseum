@@ -34,7 +34,13 @@ const initialState = {
   dmThreads: {},
   allUsers: [],           // [{id, displayName, username}] — 從 /auth/users 一次拉
   online: [],             // [{userId, displayName, status}] — CHAT_PRESENCE 即時更新
-  mentionedMessageIds: [],
+  // 被 @ 到的訊息 id 依 channel 分桶；切到該 channel 才清那一桶
+  mentionedByChannel: {
+    public: [],
+    announce: [],
+    room: {},   // { [roomId]: [messageId, ...] }
+    dm: [],     // 簡化：DM 不分 peer（DM 不常見 mention）
+  },
   error: null,
 };
 
@@ -186,13 +192,44 @@ function reducer(state, a) {
       if (!state.roomThread) return state;
       return { ...state, roomThread: null };
     case 'MENTION_ADD': {
-      if (state.mentionedMessageIds.includes(a.messageId)) return state;
-      return { ...state, mentionedMessageIds: [...state.mentionedMessageIds, a.messageId] };
+      const { messageId, channel, roomId } = a;
+      if (!messageId || !channel) return state;
+      const m = state.mentionedByChannel;
+      if (channel === 'public' || channel === 'announce' || channel === 'dm') {
+        if (m[channel].includes(messageId)) return state;
+        return {
+          ...state,
+          mentionedByChannel: { ...m, [channel]: [...m[channel], messageId] },
+        };
+      }
+      if (channel === 'room' && roomId) {
+        const cur = m.room[roomId] ?? [];
+        if (cur.includes(messageId)) return state;
+        return {
+          ...state,
+          mentionedByChannel: {
+            ...m,
+            room: { ...m.room, [roomId]: [...cur, messageId] },
+          },
+        };
+      }
+      return state;
     }
     case 'MENTION_CLEAR_CHANNEL': {
-      // 切到該 channel 時清掉該 channel 的 mention 紅點
-      if (state.mentionedMessageIds.length === 0) return state;
-      return { ...state, mentionedMessageIds: [] };  // 簡化：全清
+      // 切到該 channel 時清掉該桶
+      const { channel, roomId } = a;
+      const m = state.mentionedByChannel;
+      if (channel === 'public' || channel === 'announce' || channel === 'dm') {
+        if (m[channel].length === 0) return state;
+        return { ...state, mentionedByChannel: { ...m, [channel]: [] } };
+      }
+      if (channel === 'room' && roomId) {
+        if (!m.room[roomId]?.length) return state;
+        const nextRoom = { ...m.room };
+        delete nextRoom[roomId];
+        return { ...state, mentionedByChannel: { ...m, room: nextRoom } };
+      }
+      return state;
     }
     case 'ERROR':
       return { ...state, error: a.code };
@@ -207,6 +244,15 @@ export function useChatStore({ selfId, activeChannelRef, activePeerIdRef, curren
   const [state, dispatch] = useReducer(reducer, initialState);
   const initRef = useRef(false);
   const lastRoomIdRef = useRef(null);
+  // 追蹤「下一個 HISTORY_RES 是不是 older（拉舊）」，每個 channel/peer/room 一筆 flag。
+  // 因為 server 不會回傳這個 flag，client 自己記住「我剛才送的是不是 older request」。
+  const pendingOlderRef = useRef(new Set());
+
+  function pendingKey(channel, peerId, roomId) {
+    if (channel === 'dm') return `dm:${peerId}`;
+    if (channel === 'room') return `room:${roomId}`;
+    return channel;   // public / announce
+  }
 
   // ---- 訂閱 socket events ----
   useEffect(() => {
@@ -237,10 +283,13 @@ export function useChatStore({ selfId, activeChannelRef, activePeerIdRef, curren
       dispatch({ type: 'READ_UPDATE', messageId, count });
     };
     const onHistoryRes = ({ channel, peerId, roomId, messages, hasMore }) => {
-      if (channel === 'announce') dispatch({ type: 'ANNOUNCE_HISTORY', messages, hasMore, older: false });
-      else if (channel === 'room') dispatch({ type: 'ROOM_HISTORY', roomId, messages, hasMore, older: false });
-      else if (channel === 'dm' || peerId) dispatch({ type: 'DM_HISTORY', peerId, messages, hasMore, older: false });
-      else dispatch({ type: 'PUBLIC_HISTORY', messages, hasMore, older: false });
+      const key = pendingKey(channel ?? 'public', peerId, roomId);
+      const older = pendingOlderRef.current.has(key);
+      if (older) pendingOlderRef.current.delete(key);
+      if (channel === 'announce') dispatch({ type: 'ANNOUNCE_HISTORY', messages, hasMore, older });
+      else if (channel === 'room') dispatch({ type: 'ROOM_HISTORY', roomId, messages, hasMore, older });
+      else if (channel === 'dm' || peerId) dispatch({ type: 'DM_HISTORY', peerId, messages, hasMore, older });
+      else dispatch({ type: 'PUBLIC_HISTORY', messages, hasMore, older });
     };
     const onUnread = ({ byPeer }) => dispatch({ type: 'UNREAD_BULK', byPeer });
     const onPresence = ({ users, online }) => {
@@ -249,7 +298,12 @@ export function useChatStore({ selfId, activeChannelRef, activePeerIdRef, curren
       dispatch({ type: 'PRESENCE_RESOLVE_NAMES', list });
     };
     const onMention = (notify) => {
-      dispatch({ type: 'MENTION_ADD', messageId: notify?.messageId });
+      dispatch({
+        type: 'MENTION_ADD',
+        messageId: notify?.messageId,
+        channel: notify?.channel,
+        roomId: notify?.roomId ?? null,
+      });
     };
     const onError = (e) => {
       if (e?.code?.startsWith?.('chat_')) dispatch({ type: 'ERROR', code: e.code });
@@ -315,6 +369,23 @@ export function useChatStore({ selfId, activeChannelRef, activePeerIdRef, curren
     socket.emit(MSG.CHAT_SEND, { channel, ...opts });
   }, []);
 
+  /**
+   * 拉「更舊」的訊息：scrollTop 觸頂時呼叫。
+   * 由 caller 帶入該 channel 目前最早的 createdAt 當 before（避免 store 自己 race
+   * 拿到還沒 prepend 進來的舊資料）。
+   */
+  const requestOlderHistory = useCallback(({ channel, peerId, roomId, before }) => {
+    if (!channel || !before) return;
+    const key = pendingKey(channel, peerId, roomId);
+    if (pendingOlderRef.current.has(key)) return;   // 同一 channel 已有 in-flight 請求，避免連環觸發
+    pendingOlderRef.current.add(key);
+    const socket = getSocket();
+    const payload = { channel, before };
+    if (channel === 'dm') payload.peerId = peerId;
+    if (channel === 'room') payload.roomId = roomId;
+    socket.emit(MSG.CHAT_HISTORY_REQ, payload);
+  }, []);
+
   const openDm = useCallback((peerId, displayName) => {
     dispatch({ type: 'OPEN_DM', peerId, displayName: displayName ?? '' });
     getSocket().emit(MSG.CHAT_HISTORY_REQ, { channel: 'dm', peerId });
@@ -333,8 +404,8 @@ export function useChatStore({ selfId, activeChannelRef, activePeerIdRef, curren
     getSocket().emit(MSG.CHAT_READ, { messageId });
   }, []);
 
-  const clearMentions = useCallback(() => {
-    dispatch({ type: 'MENTION_CLEAR_CHANNEL' });
+  const clearMentions = useCallback(({ channel, roomId } = {}) => {
+    dispatch({ type: 'MENTION_CLEAR_CHANNEL', channel, roomId });
   }, []);
 
   const clearError = useCallback(() => dispatch({ type: 'CLEAR_ERROR' }), []);
@@ -342,6 +413,7 @@ export function useChatStore({ selfId, activeChannelRef, activePeerIdRef, curren
   return {
     state,
     send, openDm, closeDm, markDmRead, markMessageRead,
+    requestOlderHistory,
     clearMentions, clearError,
   };
 }

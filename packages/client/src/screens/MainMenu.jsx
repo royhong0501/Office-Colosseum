@@ -113,6 +113,45 @@ function TemplateThumbnail({ id }) {
       </div>
     );
   }
+  if (id === 'admin') {
+    // admin — 使用者表 + ADMIN/PLAYER 標籤色塊；跟 history 區隔。
+    const rows = Array.from({ length: 7 });
+    return (
+      <div style={{ ...thumbStyle, background: 'var(--bg-input)' }}>
+        <svg viewBox="0 0 160 120" width="100%" height="100%" style={{ display: 'block' }}>
+          {/* 表頭 */}
+          <rect x="6" y="6" width="148" height="12" fill="var(--bg-cell-header)" stroke="var(--line-soft)" strokeWidth="0.5" />
+          <rect x="38" y="9" width="22" height="6" fill="var(--ink-soft)" opacity="0.6" />
+          <rect x="64" y="9" width="34" height="6" fill="var(--ink-soft)" opacity="0.4" />
+          <rect x="102" y="9" width="20" height="6" fill="var(--ink-soft)" opacity="0.4" />
+          {/* 列：頭像方塊 + 名稱 + role tag + status tag */}
+          {rows.map((_, i) => {
+            const y = 22 + i * 13;
+            const isAdmin = i === 0 || i === 4;
+            const disabled = i === 5;
+            const tagColor = isAdmin ? 'var(--accent-danger)' : 'var(--ink-muted)';
+            const statusColor = disabled ? 'var(--ink-muted)' : 'var(--accent)';
+            return (
+              <g key={i}>
+                {/* 列底 */}
+                <rect x="6" y={y} width="148" height="11" fill={i % 2 === 0 ? 'var(--bg-paper)' : 'var(--bg-paper-alt)'} stroke="var(--line-soft)" strokeWidth="0.4" />
+                {/* avatar 方塊 */}
+                <rect x="9" y={y + 2} width="7" height="7" fill="var(--ink-soft)" opacity="0.55" />
+                {/* username 條 */}
+                <rect x="20" y={y + 4} width={26 + (i * 7) % 18} height="3" fill="var(--ink)" opacity="0.7" />
+                {/* role tag */}
+                <rect x="64" y={y + 2} width="22" height="7" fill="none" stroke={tagColor} strokeWidth="0.6" />
+                <rect x="66" y={y + 4} width={isAdmin ? 14 : 18} height="3" fill={tagColor} opacity="0.85" />
+                {/* status tag */}
+                <rect x="102" y={y + 2} width="18" height="7" fill="none" stroke={statusColor} strokeWidth="0.6" />
+                <rect x="104" y={y + 4} width={disabled ? 10 : 14} height="3" fill={statusColor} opacity="0.85" />
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    );
+  }
   // history — 折線圖
   return (
     <div style={{ ...thumbStyle, background: 'var(--bg-input)' }}>
