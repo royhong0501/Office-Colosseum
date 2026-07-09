@@ -62,6 +62,7 @@ export default function SolitaireBattle({ initialState, config, onEnd, onRematch
       if (Array.isArray(snap.events)) {
         for (const e of snap.events) {
           if (e.type === 'board' && e.board) { setBoard(e.board); reactToBoard(e.board); }
+          else if (e.type === 'stuck') { playSelf('stuck'); }
           else if (e.type === 'game_over') {
             if (e.result) setResult(e.result);
             if (endedAtRef.current == null) { endedAtRef.current = Date.now(); setNow(Date.now()); }

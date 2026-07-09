@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createInitialState, applyInput, resolveTick,
-  aliveCount, getWinner, finalizeStats,
+  aliveCount, getWinner, finalizeStats, hasAnyLegalMove,
   sanitizeInput, buildBoard, buildMatchStartPayload,
   NUM_TABLEAU, DECK_SIZE,
 } from '../../../src/games/solitaire/index.js';
@@ -237,6 +237,42 @@ test('sanitizeInput：draw/auto/move 合法通過，非法回 null', () => {
   assert.equal(sanitizeInput({ action: 'nope' }), null);
   assert.equal(sanitizeInput({ action: 'move', from: { pile: 'foundation' }, to: { pile: 'tableau', col: 0 } }), null, 'source foundation 需 idx');
   assert.equal(sanitizeInput({ action: 'move', from: { pile: 'tableau', col: 99, row: 0 }, to: { pile: 'tableau', col: 0 } }), null, 'col 出界');
+});
+
+// 無合法步：K 無空列可放、2 無對色 3 可疊、無 A 可歸位、stock/waste 空
+function stuckBoard() {
+  const s = blankState();
+  s.tableau = [
+    [{ s: 0, r: 13, faceUp: true }], [{ s: 1, r: 13, faceUp: true }],
+    [{ s: 2, r: 13, faceUp: true }], [{ s: 3, r: 13, faceUp: true }],
+    [{ s: 1, r: 2, faceUp: true }], [{ s: 2, r: 2, faceUp: true }],
+    [{ s: 3, r: 2, faceUp: true }],
+  ];
+  return s;
+}
+
+test('hasAnyLegalMove：死局回 false', () => {
+  assert.equal(hasAnyLegalMove(stuckBoard()), false);
+});
+
+test('hasAnyLegalMove：有可歸位的 A → true', () => {
+  const s = stuckBoard();
+  s.waste = [{ s: 0, r: 1 }];   // A♠ 可進空 foundation
+  assert.equal(hasAnyLegalMove(s), true);
+});
+
+test('hasAnyLegalMove：有可疊放的牌 → true', () => {
+  const s = stuckBoard();
+  s.tableau[6] = [{ s: 0, r: 12, faceUp: true }];  // Q♠(黑) 可疊在 K♥/K♦(紅) 上
+  assert.equal(hasAnyLegalMove(s), true);
+});
+
+test('走到死局 → 發出 stuck 事件（僅一次）', () => {
+  const s = stuckBoard();
+  s.waste = [{ s: 0, r: 1 }];   // 唯一可走：A♠ → foundation，之後死局
+  move(s, { pile: 'waste' }, { pile: 'foundation' }, 2000);
+  assert.ok(s.stuck, 'state.stuck 應為 true');
+  assert.equal(s.events.filter(e => e.type === 'stuck').length, 1);
 });
 
 test('aliveCount / resolveTick', () => {

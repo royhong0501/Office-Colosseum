@@ -74,6 +74,7 @@ export function createInitialState(players, config = {}, startedAtMs = Date.now(
     tableau,
     moves: 0,
     result: null,
+    stuck: false,
     events: [],
   };
   return state;
@@ -143,7 +144,12 @@ export function applyInput(state, playerId, input, now = Date.now(), _rng) {
       state.phase = 'ended';
       state.endedAtMs = now;
       state.events.push({ type: 'game_over', result: 'won' });
+      return state;
     }
+    // 卡關偵測（只在「轉為無合法步」時發一次事件；面朝下的牌只有 server 知道，故必須在此判）
+    const stuck = !hasAnyLegalMove(state);
+    if (stuck && !state.stuck) { state.stuck = true; state.events.push({ type: 'stuck' }); }
+    else if (!stuck) state.stuck = false;
   }
   return state;
 }
@@ -272,6 +278,45 @@ function tryToFoundation(state, card, remove) {
 
 function isWon(state) {
   return state.foundations.reduce((n, f) => n + f.length, 0) === DECK_SIZE;
+}
+
+/* ------------------------------------------------------------
+   卡關偵測：是否還存在任一合法步。
+   因為 1 張抽 + 無限回收，stock+waste 內每張牌最終都能被抽到，
+   故把兩者合起來當「可取得的牌」逐一檢查能否進 foundation / tableau。
+   ------------------------------------------------------------ */
+function canToFoundation(state, c) {
+  const pile = state.foundations[c.s];
+  return pile.length === 0 ? c.r === 1 : pile[pile.length - 1].r === c.r - 1;
+}
+function canPlaceOnTableau(state, c, col) {
+  const column = state.tableau[col];
+  if (column.length === 0) return c.r === RANK_MAX;   // 空列只能放 K
+  const top = column[column.length - 1];
+  return top.faceUp && top.r === c.r + 1 && altColor(top, c);
+}
+export function hasAnyLegalMove(state) {
+  // 1. stock + waste 內任一張能進 foundation 或某 tableau 欄（抽牌可取得）
+  for (const c of [...state.stock, ...state.waste]) {
+    if (canToFoundation(state, c)) return true;
+    for (let col = 0; col < NUM_TABLEAU; col++) if (canPlaceOnTableau(state, c, col)) return true;
+  }
+  // 2. tableau 任一面朝上的合法連段能移到別欄，或單張進 foundation
+  for (let col = 0; col < NUM_TABLEAU; col++) {
+    const column = state.tableau[col];
+    for (let row = 0; row < column.length; row++) {
+      if (!column[row].faceUp) continue;
+      const run = column.slice(row);
+      if (!isValidRun(run)) continue;
+      const bottom = run[0];
+      if (run.length === 1 && canToFoundation(state, bottom)) return true;
+      for (let t = 0; t < NUM_TABLEAU; t++) {
+        if (t === col) continue;
+        if (canPlaceOnTableau(state, bottom, t)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 /* ------------------------------------------------------------
