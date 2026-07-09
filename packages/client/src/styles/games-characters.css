@@ -1,0 +1,778 @@
+/* ============================================================
+   HiiiCalc — 貓狗小遊戲 · 角色動作系統
+   ------------------------------------------------------------
+   五子棋 / 踩地雷 / 接龍 的角色互動動作。
+   理念：平時細膩（呼吸、耳動、尾搖），關鍵時刻誇張（出手、炸飛、歡呼）。
+   全部維持試算表外殼 — 棋盤 = 儲存格格線。
+   ============================================================ */
+
+/* ——— 動作示範網格 ——— */
+.demo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 18px;
+  margin-top: 8px;
+}
+.demo-tile {
+  border: 1px solid var(--line);
+  background: var(--bg-paper);
+  display: flex;
+  flex-direction: column;
+}
+.demo-tile.wide { grid-column: span 2; }
+
+/* 動畫舞台（假的試算表片段） */
+.demo-stage {
+  position: relative;
+  height: 216px;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 25px, var(--line-soft) 25px 26px),
+    repeating-linear-gradient(90deg, transparent 0 25px, var(--line-soft) 25px 26px),
+    var(--bg-input);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.demo-stage .stage-scene {
+  position: relative;
+  width: 260px;
+  height: 190px;
+}
+
+/* 動作標籤（左上角） */
+.demo-tag {
+  position: absolute;
+  top: 8px; left: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-muted);
+  background: rgba(251,248,240,0.82);
+  border: 1px solid var(--line-soft);
+  padding: 2px 6px;
+  z-index: 40;
+  white-space: nowrap;
+}
+.demo-tag b { color: var(--accent-danger); font-weight: 700; }
+
+/* 假公式列（貼在舞台下方） */
+.demo-formula {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-input);
+  border-top: 1px solid var(--line);
+  padding: 0 10px;
+  color: var(--ink);
+}
+.demo-formula .fx { font-style: italic; color: var(--ink-muted); margin-right: 8px; }
+.demo-formula .fn { color: var(--accent-link); }
+.demo-formula .cmt { color: var(--ink-muted); }
+
+/* 說明區 */
+.demo-meta {
+  padding: 11px 13px 13px;
+  border-top: 1px solid var(--line-soft);
+}
+.demo-meta .dm-title { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.demo-meta .dm-title .var { font-family: var(--font-mono); font-size: 10px; color: #fdfbf4; background: var(--accent); padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
+.demo-meta .dm-desc { font-size: 11.5px; color: var(--ink-soft); line-height: 1.55; margin-top: 5px; }
+.demo-meta .dm-desc em { color: var(--accent-danger); font-style: normal; font-weight: 600; }
+
+/* ============================================================
+   SPRITE — 角色貼片
+   ============================================================ */
+.sprite {
+  position: absolute;
+  transform-origin: center bottom;
+  will-change: transform;
+  image-rendering: pixelated;
+}
+.sprite canvas { display: block; image-rendering: pixelated; }
+/* 影子 */
+.shadow {
+  position: absolute;
+  width: 76px; height: 14px;
+  background: radial-gradient(ellipse at center, rgba(44,36,26,0.22), rgba(44,36,26,0) 70%);
+  border-radius: 50%;
+  transform-origin: center;
+}
+
+/* ============================================================
+   假棋盤 / 儲存格
+   ============================================================ */
+.mini-board {
+  position: absolute;
+  border: 1px solid var(--line);
+  background: var(--bg-paper);
+  display: grid;
+  transform-origin: center;
+}
+.mini-board .bc {
+  border: 0.5px solid var(--line-soft);
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+/* 棋子 */
+.stone {
+  width: 15px; height: 15px; border-radius: 50%;
+  box-shadow: inset -2px -2px 0 rgba(0,0,0,0.18), 0 1px 1px rgba(0,0,0,0.25);
+}
+.stone.black { background: radial-gradient(circle at 35% 30%, #545258, #1a1820); }
+.stone.white { background: radial-gradient(circle at 35% 30%, #ffffff, #cfc9bd); }
+
+/* 掃雷 / 接龍 儲存格內容 */
+.cell-num { font-family: var(--font-mono); font-weight: 700; font-size: 13px; }
+.cell-num.n1 { color: #2d5673; } .cell-num.n2 { color: #3e5a42; } .cell-num.n3 { color: #8a3d2c; }
+.cover {
+  position: absolute; inset: 0;
+  background: linear-gradient(150deg, #ded3b6, #cabf9f);
+  border-top: 1.5px solid #efe7d1; border-left: 1.5px solid #efe7d1;
+  border-right: 1.5px solid #a99b76; border-bottom: 1.5px solid #a99b76;
+}
+
+/* 小卡牌（接龍） */
+.card {
+  width: 34px; height: 46px; border-radius: 4px;
+  background: #fbf8f0; border: 1px solid var(--line);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  font-family: var(--font-mono); font-weight: 700; font-size: 12px;
+  display: grid; place-content: start; padding: 3px 4px;
+  transform-origin: center;
+}
+.card.red { color: #8a3d2c; } .card.blk { color: #2c241a; }
+.card .pip { line-height: 1; }
+.card.back {
+  background: repeating-linear-gradient(45deg, #6d5f4a 0 4px, #5a4d3a 4px 8px);
+  border-color: #4a3f30;
+}
+
+/* ============================================================
+   FX 元素
+   ============================================================ */
+.fx { position: absolute; pointer-events: none; z-index: 30; }
+/* 爪子（出手用，顏色隨品種 --fur） */
+.fx-paw {
+  width: 18px; height: 14px;
+  background: var(--fur, #d47038);
+  border: 1.5px solid var(--furOut, #9a4818);
+  border-radius: 9px 9px 7px 7px;
+  opacity: 0;
+}
+.fx-paw::before {
+  content: ""; position: absolute; left: 3px; top: 6px;
+  width: 3px; height: 5px; border-radius: 2px;
+  background: var(--furOut, #9a4818);
+  box-shadow: 5px 0 0 var(--furOut, #9a4818), 10px 0 0 var(--furOut, #9a4818);
+}
+/* 出手撞擊塵環 */
+.fx-dust {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid rgba(138,126,104,0.7); opacity: 0;
+}
+/* 汗滴 */
+.fx-sweat {
+  width: 8px; height: 11px; opacity: 0;
+  background: radial-gradient(circle at 35% 30%, #bfe0ec, #6fa8c4);
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  clip-path: polygon(50% 0, 100% 65%, 80% 100%, 20% 100%, 0 65%);
+}
+/* 星星 / 火花 */
+.fx-spark {
+  width: 12px; height: 12px; opacity: 0;
+  background:
+    linear-gradient(var(--accent-danger,#8a3d2c),var(--accent-danger,#8a3d2c)),
+    linear-gradient(var(--accent-danger,#8a3d2c),var(--accent-danger,#8a3d2c));
+  background-size: 100% 3px, 3px 100%;
+  background-position: center, center;
+  background-repeat: no-repeat;
+}
+.fx-spark.gold { --accent-danger: #c8912f; }
+/* 音符 / 驚嘆號 pop */
+.fx-pop {
+  font-family: var(--font-ui); font-weight: 800; font-size: 20px;
+  color: var(--accent-danger); opacity: 0; transform-origin: center bottom;
+  text-shadow: 0 1px 0 #fff;
+}
+.fx-pop.blue { color: var(--accent-link); }
+.fx-pop.green { color: #3e5a42; }
+/* 思考泡泡 / 好奇 */
+.fx-bubble {
+  min-width: 22px; height: 22px; padding: 0 5px;
+  background: #fbf8f0; border: 1.5px solid var(--line);
+  border-radius: 11px; opacity: 0;
+  display: grid; place-items: center;
+  font-family: var(--font-ui); font-weight: 800; font-size: 14px; color: var(--ink-soft);
+}
+.fx-bubble::after {
+  content: ""; position: absolute; bottom: -5px; left: 6px;
+  width: 6px; height: 6px; background: #fbf8f0;
+  border-right: 1.5px solid var(--line); border-bottom: 1.5px solid var(--line);
+  transform: rotate(45deg);
+}
+/* 煙霧 */
+.fx-smoke {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: rgba(120,110,92,0.55); opacity: 0;
+}
+/* 旗子 */
+.fx-flag { opacity: 0; }
+.fx-flag .pole { position: absolute; bottom: 0; left: 5px; width: 2px; height: 22px; background: #6d5f4a; }
+.fx-flag .cloth {
+  position: absolute; bottom: 12px; left: 7px;
+  width: 0; height: 0;
+  border-top: 5px solid transparent; border-bottom: 5px solid transparent;
+  border-left: 13px solid var(--accent-danger);
+}
+/* 沮喪烏雲 */
+.fx-gloom {
+  width: 30px; height: 12px; border-radius: 8px;
+  background: #9a8f79; opacity: 0;
+  box-shadow: -8px 2px 0 -2px #9a8f79, 8px 2px 0 -2px #9a8f79;
+}
+/* 嗅聞弧線 */
+.fx-sniff {
+  width: 10px; height: 6px; opacity: 0;
+  border-top: 2px solid var(--ink-muted); border-radius: 50%;
+}
+/* 💣 / 💥 用純 CSS 塊 */
+.fx-bomb {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #2c241a; opacity: 0;
+}
+.fx-bomb::after {
+  content: ""; position: absolute; top: -4px; right: -1px;
+  width: 2px; height: 6px; background: #8a3d2c; transform: rotate(20deg);
+}
+.fx-boom {
+  width: 40px; height: 40px; opacity: 0;
+  background: radial-gradient(circle, #f6d36b 0 30%, #e08a2c 30% 55%, rgba(224,138,44,0) 70%);
+  border-radius: 50%;
+}
+
+/* 頭暈星星軌道 */
+.fx-dizzy { width: 60px; height: 20px; opacity: 0; }
+.fx-dizzy .st {
+  position: absolute; top: 0; left: 26px;
+  width: 8px; height: 8px;
+  background:
+    linear-gradient(#c8912f,#c8912f), linear-gradient(#c8912f,#c8912f);
+  background-size: 100% 2px, 2px 100%;
+  background-position: center; background-repeat: no-repeat;
+}
+
+/* ============================================================
+   KEYFRAMES
+   ============================================================ */
+
+/* —— 通用 —— */
+@keyframes breathe { 0%,100% { transform: translateY(0) scaleY(1); } 50% { transform: translateY(-2px) scaleY(1.035); } }
+@keyframes shadow-breathe { 0%,100% { transform: scaleX(1); opacity: .9; } 50% { transform: scaleX(.92); opacity: .7; } }
+
+/* ================= 五子棋 ================= */
+
+/* 思考中 — 歪頭 + 泡泡 */
+.act-think .sprite { animation: think-tilt var(--dur) ease-in-out infinite; }
+@keyframes think-tilt {
+  0%,100% { transform: rotate(0) translateY(0); }
+  18% { transform: rotate(-7deg) translateY(-1px); }
+  40% { transform: rotate(-7deg) translateY(0); }
+  60% { transform: rotate(6deg) translateY(-1px); }
+  82% { transform: rotate(6deg) translateY(0); }
+}
+.act-think .fx-bubble { animation: think-bubble var(--dur) ease-in-out infinite; }
+@keyframes think-bubble {
+  0%,10% { opacity: 0; transform: translateY(4px) scale(.6); }
+  22% { opacity: 1; transform: translateY(0) scale(1); }
+  50% { opacity: 1; transform: translateY(-2px) scale(1.06); }
+  80% { opacity: 1; transform: translateY(0) scale(1); }
+  92%,100% { opacity: 0; transform: translateY(-3px) scale(.7); }
+}
+
+/* 落子出手 A · 拍 (slap) */
+.act-slap .sprite { animation: slap-body var(--dur) ease-in-out infinite; }
+@keyframes slap-body {
+  0% { transform: translateX(0) rotate(0); }
+  18% { transform: translateX(-5px) rotate(-5deg); }
+  40% { transform: translateX(11px) rotate(9deg); }
+  52% { transform: translateX(8px) rotate(6deg); }
+  70% { transform: translateX(0) rotate(0); }
+  100% { transform: translateX(0) rotate(0); }
+}
+.act-slap .fx-paw { animation: slap-paw var(--dur) ease-out infinite; }
+@keyframes slap-paw {
+  0%,16% { opacity: 0; transform: translate(0,0) scale(.6) rotate(20deg); }
+  30% { opacity: 1; transform: translate(20px,6px) scale(1) rotate(20deg); }
+  42% { opacity: 1; transform: translate(34px,14px) scale(1.05) rotate(20deg); }
+  58% { opacity: 1; transform: translate(28px,10px) scale(1) rotate(20deg); }
+  72%,100% { opacity: 0; transform: translate(6px,2px) scale(.6) rotate(20deg); }
+}
+.act-slap .fx-dust, .act-toss .fx-dust, .act-stamp .fx-dust { animation: impact-dust var(--dur) ease-out infinite; }
+@keyframes impact-dust {
+  0%,40% { opacity: 0; transform: scale(.3); }
+  46% { opacity: .75; transform: scale(1); }
+  66%,100% { opacity: 0; transform: scale(1.7); }
+}
+.act-slap .drop-stone, .act-toss .drop-stone, .act-stamp .drop-stone { animation: stone-pop var(--dur) cubic-bezier(.2,1.4,.5,1) infinite; }
+@keyframes stone-pop {
+  0%,42% { opacity: 0; transform: scale(0); }
+  48% { opacity: 1; transform: scale(1.45); }
+  56% { transform: scale(.88); }
+  63% { transform: scale(1.1); }
+  70%,100% { opacity: 1; transform: scale(1); }
+}
+.act-slap .mini-board, .act-stamp .mini-board { animation: board-nudge var(--dur) ease-out infinite; }
+@keyframes board-nudge {
+  0%,42% { transform: translate(0,0); }
+  46% { transform: translate(2px,1px); }
+  50% { transform: translate(-2px,0); }
+  55% { transform: translate(0,0); }
+  100% { transform: translate(0,0); }
+}
+
+/* 落子出手 B · 投 (toss) — 拋物線 */
+.act-toss .sprite { animation: toss-body var(--dur) ease-in-out infinite; }
+@keyframes toss-body {
+  0% { transform: rotate(0); }
+  20% { transform: rotate(-8deg); }
+  38% { transform: rotate(7deg); }
+  55% { transform: rotate(0); }
+  100% { transform: rotate(0); }
+}
+.act-toss .fly-stone { animation: toss-fly var(--dur) ease-in infinite; }
+@keyframes toss-fly {
+  0%,20% { opacity: 0; transform: translate(0,0) scale(.7); }
+  26% { opacity: 1; transform: translate(6px,-26px) scale(1); }
+  38% { transform: translate(30px,-34px) scale(1); }
+  50% { transform: translate(56px,-6px) scale(1); }
+  56% { opacity: 1; transform: translate(58px,2px) scale(1.15); }
+  62% { transform: translate(58px,2px) scale(.95); }
+  70%,100% { opacity: 1; transform: translate(58px,2px) scale(1); }
+}
+
+/* 落子出手 C · 蓋章 (stamp) — 升起後蓋下 */
+.act-stamp .sprite { animation: stamp-body var(--dur) cubic-bezier(.3,0,.2,1) infinite; }
+@keyframes stamp-body {
+  0% { transform: translateY(0) scaleY(1); }
+  22% { transform: translateY(-16px) scaleY(1.08); }
+  36% { transform: translateY(-18px) scaleY(1.1); }
+  46% { transform: translateY(2px) scaleY(.86); }
+  56% { transform: translateY(0) scaleY(1.04); }
+  66% { transform: translateY(0) scaleY(1); }
+  100% { transform: translateY(0) scaleY(1); }
+}
+.act-stamp .fx-pop { animation: stamp-bang var(--dur) ease-out infinite; }
+@keyframes stamp-bang {
+  0%,44% { opacity: 0; transform: scale(.4) rotate(-8deg); }
+  50% { opacity: 1; transform: scale(1.2) rotate(-8deg); }
+  70%,100% { opacity: 0; transform: scale(1) rotate(-8deg); }
+}
+
+/* 等待對手 — 呼吸 + 看棋盤 + 對手落子 */
+.act-wait .sprite { animation: wait-idle var(--dur) ease-in-out infinite; }
+@keyframes wait-idle {
+  0%,100% { transform: translateY(0) scaleY(1) rotate(0); }
+  20% { transform: translateY(-2px) scaleY(1.03) rotate(0); }
+  40% { transform: translateY(0) scaleY(1) rotate(0); }
+  56% { transform: translateY(0) rotate(5deg); }
+  72% { transform: translateY(-1px) rotate(-5deg); }
+  88% { transform: translateY(0) rotate(0); }
+}
+.act-wait .opp-stone { animation: opp-drop var(--dur) cubic-bezier(.2,1.3,.5,1) infinite; }
+@keyframes opp-drop {
+  0%,52% { opacity: 0; transform: translateY(-12px) scale(.5); }
+  60% { opacity: 1; transform: translateY(0) scale(1.3); }
+  68% { transform: scale(.92); }
+  74%,100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.act-wait .fx-bubble { animation: wait-dots var(--dur) ease-in-out infinite; }
+@keyframes wait-dots {
+  0%,44% { opacity: 0; transform: scale(.6); }
+  52% { opacity: 1; transform: scale(1); }
+  80% { opacity: 1; }
+  90%,100% { opacity: 0; }
+}
+
+/* 勝利 — 跳躍歡呼 */
+.act-win .sprite { animation: win-jump var(--dur) cubic-bezier(.3,0,.3,1) infinite; }
+@keyframes win-jump {
+  0%,100% { transform: translateY(0) scale(1,1); }
+  12% { transform: translateY(2px) scale(1.14,.86); }
+  34% { transform: translateY(-26px) scale(.9,1.14); }
+  52% { transform: translateY(0) scale(1.12,.88); }
+  64% { transform: translateY(-12px) scale(1,1); }
+  78% { transform: translateY(0) scale(1.06,.94); }
+  88% { transform: translateY(0) scale(1); }
+}
+.act-win .shadow, .act-sweep .shadow { animation: jump-shadow var(--dur) cubic-bezier(.3,0,.3,1) infinite; }
+@keyframes jump-shadow {
+  0%,100% { transform: scaleX(1); opacity: .85; }
+  34% { transform: scaleX(.6); opacity: .45; }
+  52% { transform: scaleX(1.05); opacity: .85; }
+}
+.act-win .fx-spark, .act-sweep .fx-spark { animation: spark-burst var(--dur) ease-out infinite; }
+@keyframes spark-burst {
+  0%,20% { opacity: 0; transform: scale(0) rotate(0); }
+  36% { opacity: 1; transform: scale(1.2) rotate(90deg); }
+  60% { opacity: 1; transform: scale(1) rotate(160deg); }
+  80%,100% { opacity: 0; transform: scale(.4) rotate(200deg); }
+}
+.act-win .winline { animation: winline-flash var(--dur) ease-in-out infinite; }
+@keyframes winline-flash {
+  0%,20% { box-shadow: 0 0 0 0 rgba(200,145,47,0); }
+  40%,70% { box-shadow: 0 0 8px 2px rgba(200,145,47,.9); }
+  100% { box-shadow: 0 0 0 0 rgba(200,145,47,0); }
+}
+.act-win .fx-pop { animation: pop-up var(--dur) ease-out infinite; }
+@keyframes pop-up {
+  0%,22% { opacity: 0; transform: translateY(6px) scale(.4); }
+  38% { opacity: 1; transform: translateY(-2px) scale(1.2); }
+  60% { transform: translateY(0) scale(1); }
+  82%,100% { opacity: 0; transform: translateY(-4px) scale(.9); }
+}
+
+/* 緊張 — 縮一下 + 發抖 + 冒汗 */
+.act-tense .sprite { animation: tense-shiver var(--dur) linear infinite; }
+@keyframes tense-shiver {
+  0% { transform: translateX(0) scale(1); }
+  8% { transform: translateX(0) scale(.94); }
+  10%,14%,18%,22%,26%,30% { transform: translateX(-1.5px) scale(.94); }
+  12%,16%,20%,24%,28% { transform: translateX(1.5px) scale(.94); }
+  46% { transform: translateX(0) scale(.96); }
+  100% { transform: translateX(0) scale(1); }
+}
+.act-tense .fx-sweat { animation: sweat-drip var(--dur) ease-in infinite; }
+@keyframes sweat-drip {
+  0%,18% { opacity: 0; transform: translateY(-2px) scale(.5); }
+  30% { opacity: 1; transform: translateY(0) scale(1); }
+  60% { opacity: 1; transform: translateY(12px) scale(1); }
+  74%,100% { opacity: 0; transform: translateY(16px) scale(.7); }
+}
+.act-tense .danger-stone { animation: danger-glow var(--dur) ease-in-out infinite; }
+@keyframes danger-glow {
+  0%,100% { box-shadow: 0 0 0 0 rgba(138,61,44,0); }
+  50% { box-shadow: 0 0 7px 2px rgba(138,61,44,.85); }
+}
+.act-tense .fx-pop { animation: pop-shake var(--dur) ease-out infinite; }
+@keyframes pop-shake {
+  0%,20% { opacity: 0; transform: scale(.4); }
+  30% { opacity: 1; transform: scale(1.1) rotate(-6deg); }
+  40% { transform: scale(1) rotate(6deg); }
+  50% { transform: rotate(-4deg); }
+  64%,100% { opacity: 0; transform: scale(.9); }
+}
+
+/* ================= 踩地雷 ================= */
+
+/* 翻開安全格 — 點一下 + 開心 */
+.act-reveal .sprite { animation: reveal-tap var(--dur) ease-in-out infinite; }
+@keyframes reveal-tap {
+  0%,18% { transform: translateY(0) rotate(0); }
+  30% { transform: translateY(3px) rotate(4deg) scaleY(.95); }
+  40% { transform: translateY(0) rotate(0); }
+  52% { transform: translateY(-8px) scaleY(1.06); }
+  64% { transform: translateY(0) scaleY(.97); }
+  74% { transform: translateY(0) scaleY(1); }
+  100% { transform: translateY(0); }
+}
+.act-reveal .fx-paw { animation: tap-paw var(--dur) ease-out infinite; }
+@keyframes tap-paw {
+  0%,16% { opacity: 0; transform: translate(0,-6px) scale(.7) rotate(20deg); }
+  28% { opacity: 1; transform: translate(0,4px) scale(1) rotate(20deg); }
+  40% { opacity: 1; transform: translate(0,-2px) scale(1) rotate(20deg); }
+  52%,100% { opacity: 0; transform: translate(0,-6px) scale(.7) rotate(20deg); }
+}
+.act-reveal .cover, .act-sweep .cover { animation: cover-off var(--dur) ease-out infinite; }
+@keyframes cover-off {
+  0%,30% { opacity: 1; transform: scale(1); }
+  42% { opacity: 0; transform: scale(.82) translateY(-3px); }
+  100% { opacity: 0; transform: scale(.82); }
+}
+.act-reveal .fx-pop { animation: pop-up var(--dur) ease-out infinite; }
+
+/* 插旗 — 舉旗後插下 */
+.act-flag .sprite { animation: flag-body var(--dur) ease-in-out infinite; }
+@keyframes flag-body {
+  0%,18% { transform: translateY(0) scaleY(1); }
+  34% { transform: translateY(-2px) scaleY(1.05); }
+  50% { transform: translateY(1px) scaleY(.97); }
+  62% { transform: translateY(0) scaleY(1.02); }
+  72% { transform: translateY(0) scaleY(1); }
+  100% { transform: translateY(0); }
+}
+.act-flag .fx-flag { animation: flag-plant var(--dur) ease-out infinite; }
+@keyframes flag-plant {
+  0% { opacity: 0; transform: translateY(-8px) rotate(-24deg) scale(.6); }
+  20% { opacity: 1; transform: translateY(-10px) rotate(-12deg) scale(1); }
+  46% { transform: translateY(0) rotate(0) scale(1); }
+  54% { transform: translateY(0) rotate(7deg); }
+  64% { transform: translateY(0) rotate(-5deg); }
+  74% { transform: translateY(0) rotate(3deg); }
+  82%,100% { transform: translateY(0) rotate(0); opacity: 1; }
+}
+
+/* 好奇嗅聞 — 湊近數字 */
+.act-sniff .sprite { animation: sniff-lean var(--dur) ease-in-out infinite; }
+@keyframes sniff-lean {
+  0%,100% { transform: translateX(0) translateY(0) rotate(0); }
+  24% { transform: translateX(10px) rotate(5deg); }
+  36% { transform: translateX(11px) translateY(2px) rotate(5deg); }
+  46% { transform: translateX(11px) translateY(-1px) rotate(5deg); }
+  56% { transform: translateX(11px) translateY(2px) rotate(5deg); }
+  66% { transform: translateX(11px) translateY(0) rotate(5deg); }
+  84% { transform: translateX(0) rotate(0); }
+}
+.act-sniff .fx-sniff { animation: sniff-puff var(--dur) ease-out infinite; }
+@keyframes sniff-puff {
+  0%,34% { opacity: 0; transform: translateX(0) scale(.6); }
+  44% { opacity: .9; transform: translateX(4px) scale(1); }
+  60% { opacity: 0; transform: translateX(9px) scale(1.2); }
+  100% { opacity: 0; }
+}
+.act-sniff .fx-bubble { animation: think-bubble var(--dur) ease-in-out infinite; }
+.act-sniff .num-cell { animation: num-highlight var(--dur) ease-in-out infinite; }
+@keyframes num-highlight {
+  0%,30% { background: var(--bg-input); }
+  50%,74% { background: #fff3cf; }
+  100% { background: var(--bg-input); }
+}
+
+/* 踩到地雷 — 炸飛 + 冒煙 + 暈眩（誇張） */
+.act-mine .sprite { animation: mine-blast var(--dur) cubic-bezier(.25,.8,.3,1) infinite; }
+@keyframes mine-blast {
+  0%,26% { transform: translateY(0) rotate(0) scale(1); }
+  30% { transform: translateY(-3px) scale(1.22,.8); }
+  40% { transform: translateY(-42px) rotate(200deg) scale(.85); }
+  50% { transform: translateY(-52px) rotate(330deg) scale(.85); }
+  60% { transform: translateY(-14px) rotate(360deg) scale(1.05,.95); }
+  68% { transform: translateY(0) rotate(360deg) scale(1.15,.85); }
+  74% { transform: translateY(0) rotate(360deg) scale(1); }
+  82% { transform: translateY(0) rotate(360deg) translateX(-3px); }
+  90% { transform: translateY(0) rotate(360deg) translateX(3px); }
+  100% { transform: translateY(0) rotate(360deg) translateX(0); }
+}
+.act-mine .fx-bomb { animation: bomb-show var(--dur) ease-out infinite; }
+@keyframes bomb-show {
+  0%,20% { opacity: 0; transform: scale(.4); }
+  24% { opacity: 1; transform: scale(1); }
+  29% { opacity: 1; transform: scale(1.1); }
+  31%,100% { opacity: 0; transform: scale(1.4); }
+}
+.act-mine .fx-boom { animation: boom-flash var(--dur) ease-out infinite; }
+@keyframes boom-flash {
+  0%,28% { opacity: 0; transform: scale(.2); }
+  32% { opacity: 1; transform: scale(1.2); }
+  44% { opacity: .7; transform: scale(1.5); }
+  54%,100% { opacity: 0; transform: scale(1.8); }
+}
+.act-mine .fx-smoke { animation: smoke-rise var(--dur) ease-out infinite; }
+@keyframes smoke-rise {
+  0%,30% { opacity: 0; transform: translateY(0) scale(.5); }
+  40% { opacity: .7; transform: translateY(-12px) scale(1); }
+  60% { opacity: .4; transform: translateY(-26px) scale(1.5); }
+  72%,100% { opacity: 0; transform: translateY(-36px) scale(1.9); }
+}
+.act-mine .mini-board { animation: board-quake var(--dur) ease-out infinite; }
+@keyframes board-quake {
+  0%,28% { transform: translate(0,0); }
+  31% { transform: translate(-4px,2px); }
+  34% { transform: translate(4px,-2px); }
+  38% { transform: translate(-3px,1px); }
+  42% { transform: translate(3px,0); }
+  47% { transform: translate(0,0); }
+  100% { transform: translate(0,0); }
+}
+.act-mine .fx-dizzy { animation: dizzy-show var(--dur) linear infinite; }
+@keyframes dizzy-show {
+  0%,72% { opacity: 0; transform: rotate(0); }
+  78% { opacity: 1; }
+  100% { opacity: 1; transform: rotate(360deg); }
+}
+.act-mine .fx-dizzy .st:nth-child(2) { left: -8px; top: 8px; }
+.act-mine .fx-dizzy .st:nth-child(3) { left: 60px; top: 8px; }
+
+/* 全部掃完勝利 */
+.act-sweep .sprite { animation: win-jump var(--dur) cubic-bezier(.3,0,.3,1) infinite; }
+.act-sweep .cover { animation-timing-function: ease-out; }
+.act-sweep .cover.c1 { animation-delay: calc(var(--dur) * 0.02); }
+.act-sweep .cover.c2 { animation-delay: calc(var(--dur) * 0.06); }
+.act-sweep .cover.c3 { animation-delay: calc(var(--dur) * 0.10); }
+.act-sweep .cover.c4 { animation-delay: calc(var(--dur) * 0.14); }
+.act-sweep .cover.c5 { animation-delay: calc(var(--dur) * 0.18); }
+.act-sweep .fx-pop { animation: pop-up var(--dur) ease-out infinite; }
+
+/* ================= 接龍 ================= */
+
+/* 抽牌 / 翻牌 */
+.act-draw .fx-paw { animation: tap-paw var(--dur) ease-out infinite; }
+.act-draw .flip-card { animation: card-flip var(--dur) ease-in-out infinite; transform-style: preserve-3d; }
+@keyframes card-flip {
+  0%,24% { transform: rotateY(0) translateY(0); }
+  38% { transform: rotateY(90deg) translateY(-6px); }
+  52% { transform: rotateY(180deg) translateY(-6px); }
+  64% { transform: rotateY(180deg) translateY(0); }
+  100% { transform: rotateY(180deg) translateY(0); }
+}
+.act-draw .flip-card .face { position: absolute; inset: 0; backface-visibility: hidden; }
+.act-draw .flip-card .face.front { transform: rotateY(180deg); }
+.act-draw .sprite { animation: breathe var(--dur) ease-in-out infinite; }
+
+/* 移動牌 — 推著走 */
+.act-move .sprite { animation: push-body var(--dur) ease-in-out infinite; }
+@keyframes push-body {
+  0%,10% { transform: translateX(0) rotate(0); }
+  22% { transform: translateX(0) rotate(6deg); }
+  70% { transform: translateX(66px) rotate(6deg); }
+  80% { transform: translateX(66px) rotate(0); }
+  84% { opacity: 1; }
+  90% { opacity: 0; transform: translateX(66px); }
+  91% { transform: translateX(0); }
+  96% { opacity: 0; transform: translateX(0); }
+  100% { opacity: 1; transform: translateX(0) rotate(0); }
+}
+.act-move .push-card { animation: push-card var(--dur) ease-in-out infinite; }
+@keyframes push-card {
+  0%,10% { transform: translateX(0); opacity: 1; }
+  70% { transform: translateX(66px); opacity: 1; }
+  84% { transform: translateX(66px); opacity: 1; }
+  90% { opacity: 0; transform: translateX(66px); }
+  91% { opacity: 0; transform: translateX(0); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+/* 疊到基礎堆 — 開心蹦 */
+.act-found .sprite { animation: found-hop var(--dur) cubic-bezier(.3,0,.3,1) infinite; }
+@keyframes found-hop {
+  0%,30% { transform: translateY(0) scale(1); }
+  40% { transform: translateY(2px) scale(1.1,.9); }
+  58% { transform: translateY(-18px) scale(.94,1.1); }
+  74% { transform: translateY(0) scale(1.08,.92); }
+  84% { transform: translateY(0) scale(1); }
+  100% { transform: translateY(0); }
+}
+.act-found .fly-card { animation: found-fly var(--dur) cubic-bezier(.3,0,.4,1) infinite; }
+@keyframes found-fly {
+  0%,18% { opacity: 0; transform: translate(0,0) scale(1) rotate(0); }
+  24% { opacity: 1; transform: translate(0,0) scale(1); }
+  46% { transform: translate(38px,-34px) scale(1) rotate(6deg); }
+  60% { transform: translate(72px,-40px) scale(1.14) rotate(0); }
+  68% { transform: translate(72px,-40px) scale(.95); }
+  76%,100% { opacity: 1; transform: translate(72px,-40px) scale(1); }
+}
+.act-found .fx-pop { animation: pop-up var(--dur) ease-out infinite; }
+
+/* 沒牌可走 — 垂頭喪氣 */
+.act-stuck .sprite { animation: stuck-droop var(--dur) ease-in-out infinite; filter: grayscale(0); }
+@keyframes stuck-droop {
+  0% { transform: translateY(0) scaleY(1) rotate(0); }
+  30% { transform: translateY(5px) scaleY(.88) rotate(0); filter: grayscale(.35) brightness(.97); }
+  60% { transform: translateY(6px) scaleY(.86) rotate(-2deg); }
+  80% { transform: translateY(6px) scaleY(.86) rotate(2deg); }
+  100% { transform: translateY(0) scaleY(1) rotate(0); }
+}
+.act-stuck .fx-gloom { animation: gloom-float var(--dur) ease-in-out infinite; }
+@keyframes gloom-float {
+  0%,16% { opacity: 0; transform: translateY(-3px); }
+  34% { opacity: .8; transform: translateY(0); }
+  74% { opacity: .8; transform: translateY(-2px); }
+  90%,100% { opacity: 0; transform: translateY(-3px); }
+}
+.act-stuck .fx-pop { animation: sigh-dots var(--dur) ease-in-out infinite; }
+@keyframes sigh-dots {
+  0%,20% { opacity: 0; transform: translateY(0); }
+  40% { opacity: .8; transform: translateY(-3px); }
+  74% { opacity: .8; }
+  90%,100% { opacity: 0; transform: translateY(-6px); }
+}
+
+/* 通關瀑布 — 牌傾瀉 + 歡呼 */
+.act-cascade .sprite { animation: win-jump var(--dur) cubic-bezier(.3,0,.3,1) infinite; }
+.act-cascade .casc-card { animation: casc var(--dur) linear infinite; opacity: 0; }
+@keyframes casc {
+  0% { opacity: 0; transform: translate(0,0); }
+  6% { opacity: 1; }
+  20% { transform: translate(38px,-22px); }
+  30% { transform: translate(58px,4px); }
+  44% { transform: translate(96px,-16px); }
+  54% { transform: translate(120px,6px); }
+  70% { transform: translate(158px,-10px); }
+  80% { transform: translate(184px,8px); }
+  94% { opacity: 1; }
+  100% { opacity: 0; transform: translate(214px,10px); }
+}
+.act-cascade .fx-spark { animation: spark-burst var(--dur) ease-out infinite; }
+.act-cascade .fx-pop { animation: pop-up var(--dur) ease-out infinite; }
+
+/* ============================================================
+   選角條（character select）
+   ============================================================ */
+.cs-strip { display: flex; gap: 0; border: 1px solid var(--line); background: var(--bg-paper); width: fit-content; }
+.cs-cell {
+  width: 92px; height: 104px;
+  border-right: 1px solid var(--line-soft);
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  padding-bottom: 8px; position: relative; background: var(--bg-input);
+}
+.cs-cell:last-child { border-right: 0; }
+.cs-cell .cs-name { font-size: 10.5px; color: var(--ink-soft); margin-top: 2px; font-family: var(--font-mono); }
+.cs-cell .cs-kind { position: absolute; top: 5px; left: 6px; font-size: 8.5px; font-family: var(--font-mono); padding: 1px 4px; border-radius: 2px; }
+.cs-kind.cat { background: #cdd8e6; color: #2d5673; }
+.cs-kind.dog { background: #cddccb; color: #3e5a42; }
+.cs-cell .sprite-sel { image-rendering: pixelated; }
+.cs-cell.selected {
+  outline: 2px solid var(--accent-link); outline-offset: -2px;
+  background: #fff;
+}
+.cs-cell.selected::after {
+  content: ""; position: absolute; right: -3px; bottom: -3px;
+  width: 7px; height: 7px; background: var(--accent-link); border: 1px solid #fff;
+}
+.cs-cell.selected .sprite-sel { animation: breathe 2.2s ease-in-out infinite; transform-origin: center bottom; }
+
+/* ============================================================
+   reduced motion — 凍結到代表性狀態
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .demo-stage * { animation: none !important; }
+  .fx-paw, .fx-dust, .fx-sweat, .fx-spark, .fx-pop, .fx-bubble,
+  .fx-smoke, .fx-flag, .fx-gloom, .fx-sniff, .fx-boom, .fx-bomb,
+  .fx-dizzy, .cover { opacity: 0 !important; }
+  .drop-stone, .fly-stone, .opp-stone { opacity: 1 !important; }
+}
+
+/* ============================================================
+   one-shot override — KEY/BURST 單次播放（IDLE 仍 infinite）
+   由 CharacterActor 在非循環動作時加 .oneshot
+   ============================================================ */
+.char-actor.oneshot .sprite,
+.char-actor.oneshot .fx,
+.char-actor.oneshot .shadow,
+.char-actor.oneshot .stone,
+.char-actor.oneshot .cover,
+.char-actor.oneshot .card,
+.char-actor.oneshot .flip-card,
+.char-actor.oneshot .casc-card {
+  animation-iteration-count: 1 !important;
+  animation-fill-mode: both !important;
+}
+
+/* CharacterActor 容器 + 中性待機 */
+.char-actor { pointer-events: none; }
+.char-actor .sprite img { display: block; image-rendering: pixelated; }
+.char-actor.act-idle .sprite { animation: breathe var(--dur, 3s) ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .char-actor .sprite, .char-actor .fx, .char-actor .shadow { animation: none !important; }
+  .char-actor .fx { opacity: 0 !important; }
+}
+
+
+/* 落敗持續動作（沿用卡關的 droop/gloom 視覺） */
+.act-lose .sprite { animation: stuck-droop var(--dur) ease-in-out infinite; filter: grayscale(0); }
+.act-lose .fx-gloom { animation: gloom-float var(--dur) ease-in-out infinite; }
+.act-lose .fx-pop { animation: sigh-dots var(--dur) ease-in-out infinite; }
+
+/* 發牌改成跳一下（覆寫原本的 breathe；draw 是 one-shot → 單次） */
+.act-draw .sprite { animation: found-hop var(--dur) cubic-bezier(.3,0,.3,1) !important; }

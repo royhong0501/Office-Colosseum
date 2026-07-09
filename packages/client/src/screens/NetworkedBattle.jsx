@@ -4,9 +4,15 @@
 import BattleRoyale from './battle/br/BattleRoyale.jsx';
 import ItemsBattle from './battle/items/ItemsBattle.jsx';
 import TerritoryBattle from './battle/territory/TerritoryBattle.jsx';
+import GomokuBattle from './battle/gomoku/GomokuBattle.jsx';
+import MinesweeperBattle from './battle/minesweeper/MinesweeperBattle.jsx';
+import SolitaireBattle from './battle/solitaire/SolitaireBattle.jsx';
 import SheetWindow from '../components/SheetWindow.jsx';
 
-export default function NetworkedBattle({ gameType, config, initialState, onEnd }) {
+export default function NetworkedBattle({ gameType, config, initialState, onEnd, onRematch, onExit }) {
+  // 桌遊（gomoku/minesweeper/solitaire）改用「結束跳窗」流程（onRematch/onExit），
+  // 停在戰鬥畫面播完化身動作再詢問；射擊類仍走原本的 GameOver 結算頁（onEnd）。
+  const endProps = { onRematch, onExit };
   if (gameType === 'battle-royale') {
     return <BattleRoyale initialState={initialState} config={config} onEnd={onEnd} />;
   }
@@ -16,7 +22,16 @@ export default function NetworkedBattle({ gameType, config, initialState, onEnd 
   if (gameType === 'territory') {
     return <TerritoryBattle initialState={initialState} config={config} onEnd={onEnd} />;
   }
-  // Items / Territory placeholder
+  if (gameType === 'gomoku') {
+    return <GomokuBattle initialState={initialState} config={config} onEnd={onEnd} {...endProps} />;
+  }
+  if (gameType === 'minesweeper') {
+    return <MinesweeperBattle initialState={initialState} config={config} onEnd={onEnd} {...endProps} />;
+  }
+  if (gameType === 'solitaire') {
+    return <SolitaireBattle initialState={initialState} config={config} onEnd={onEnd} {...endProps} />;
+  }
+  // 未實作的 gameType placeholder
   return (
     <SheetWindow
       fileName={`${gameType ?? '對戰'}.xlsx — 對戰中`}

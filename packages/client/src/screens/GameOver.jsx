@@ -7,6 +7,9 @@ const GAME_NAMES = {
   'battle-royale': '經典大逃殺',
   'items': '道具戰',
   'territory': '數據領地爭奪戰',
+  'gomoku': '五子棋',
+  'minesweeper': '踩地雷',
+  'solitaire': '接龍',
 };
 
 function formatDuration(ticks) {

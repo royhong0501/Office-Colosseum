@@ -157,6 +157,8 @@ export default function App() {
         config={config}
         initialState={matchStart}
         onEnd={(end) => { setMatchEnd(end); setScreen('gameover'); }}
+        onRematch={() => { getSocket().emit(MSG.READY, { ready: false }); setScreen('room'); }}
+        onExit={() => { getSocket().emit(MSG.LEAVE); setRoomInfo(null); setScreen('lobby'); }}
       />
     );
   } else if (screen === 'gameover') {

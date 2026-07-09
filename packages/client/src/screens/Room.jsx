@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CAT_BREEDS, DOG_BREEDS, ALL_CHARACTERS, MSG, MIN_PLAYERS, MAX_PLAYERS } from '@office-colosseum/shared';
+import { CAT_BREEDS, DOG_BREEDS, ALL_CHARACTERS, MSG, gameMinPlayers, gameMaxPlayers } from '@office-colosseum/shared';
 import { getMapById } from '@office-colosseum/shared/src/games/br/index.js';
 import { getSocket } from '../net/socket.js';
 import { CharacterSpriteImg } from '../components/CharacterSprite.jsx';
@@ -151,13 +151,18 @@ export default function Room({ gameType, config, onMatchStart, onBack, gameName 
 
   const readyCount = players.filter((p) => p.ready).length;
 
+  // 人數門檻依 gameType：五子棋恰 2、踩地雷/接龍單人；其餘沿用預設
+  const minPlayers = gameMinPlayers(gameType);
+  const maxPlayers = gameMaxPlayers(gameType);
+  const isSolo = maxPlayers <= 1;
+
   const canStart =
-    players.length >= MIN_PLAYERS &&
+    players.length >= minPlayers &&
     players.every((p) => p.ready && p.characterId);
 
   const startDisabledReason = (() => {
-    if (players.length < MIN_PLAYERS) {
-      return `還差 ${MIN_PLAYERS - players.length} 人（最少 ${MIN_PLAYERS} 人）`;
+    if (players.length < minPlayers) {
+      return `還差 ${minPlayers - players.length} 人（最少 ${minPlayers} 人）`;
     }
     const noChar = players.find((p) => !p.characterId);
     if (noChar) return `${noChar.displayName} 尚未選角色`;
@@ -213,7 +218,7 @@ export default function Room({ gameType, config, onMatchStart, onBack, gameName 
       activeTab="room"
       onTabSelect={(id) => { if (id === 'hall') handleBack(); }}
       statusLeft={canStart ? '就緒 — 所有參賽者已準備，房主可啟動對戰' : '等待中 — 請完成選角與準備'}
-      statusRight={`參賽者 ${players.length}/${MAX_PLAYERS} | 就緒 ${readyCount}/${players.length}`}
+      statusRight={`參賽者 ${players.length}/${maxPlayers} | 就緒 ${readyCount}/${players.length}`}
       fullscreen
     >
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '320px 1fr', minHeight: 0 }}>
@@ -235,15 +240,15 @@ export default function Room({ gameType, config, onMatchStart, onBack, gameName 
             <span style={{ color: 'var(--ink-soft)', fontWeight: 600 }}>
               工作表：參賽者名冊
             </span>
-            {me.isHost && (
+            {me.isHost && !isSolo && (
               <button
                 onClick={handleAddBot}
-                disabled={players.length >= MAX_PLAYERS}
+                disabled={players.length >= maxPlayers}
                 style={{
                   background: 'var(--bg-input)',
                   border: '1px solid var(--line)',
-                  color: players.length >= MAX_PLAYERS ? 'var(--ink-faint)' : 'var(--ink)',
-                  cursor: players.length >= MAX_PLAYERS ? 'not-allowed' : 'pointer',
+                  color: players.length >= maxPlayers ? 'var(--ink-faint)' : 'var(--ink)',
+                  cursor: players.length >= maxPlayers ? 'not-allowed' : 'pointer',
                   fontSize: 10, padding: '2px 8px',
                   fontFamily: 'var(--font-ui)',
                 }}
@@ -357,7 +362,7 @@ export default function Room({ gameType, config, onMatchStart, onBack, gameName 
                 </div>
               );
             })}
-            {Array.from({ length: Math.max(0, MAX_PLAYERS - players.length) }).map((_, i) => (
+            {Array.from({ length: Math.max(0, maxPlayers - players.length) }).map((_, i) => (
               <div
                 key={`empty-${i}`}
                 style={{
