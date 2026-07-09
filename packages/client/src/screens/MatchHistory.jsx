@@ -14,6 +14,9 @@ const SUB_TABS = [
   { id: 'br',   label: 'Sheet A · 大逃殺',   formula: 'BATTLE_ROYALE', gameType: 'battle-royale' },
   { id: 'item', label: 'Sheet B · 道具戰',   formula: 'ITEM_WAR',      gameType: 'items' },
   { id: 'terr', label: 'Sheet C · 領地爭奪', formula: 'TERRITORY',     gameType: 'territory' },
+  { id: 'gomo', label: 'Sheet D · 五子棋',   formula: 'GOMOKU',        gameType: 'gomoku' },
+  { id: 'mine', label: 'Sheet E · 踩地雷',   formula: 'MINESWEEPER',   gameType: 'minesweeper' },
+  { id: 'soli', label: 'Sheet F · 接龍',     formula: 'SOLITAIRE',     gameType: 'solitaire' },
 ];
 const ITEMS_SKILLS = [
   { id: 'freeze',   key: 'F1', name: '凍結窗格',     fn: '=FREEZE()',   color: '#6a8fb5' },
@@ -26,7 +29,11 @@ const MODE_CHIP_BG = {
   'battle-royale': '#e8d9c8',
   'items': '#d8dfe8',
   'territory': '#dae0cf',
+  'gomoku': '#e0dae8',
+  'minesweeper': '#e8dcd2',
+  'solitaire': '#d2e4e0',
 };
+const DIFF_NAME = { easy: '新手', normal: '普通', hard: '專家' };
 
 /* ------------------------------------------------------------
    Formatters
@@ -50,6 +57,11 @@ function fmtTicks(ticks) {
 function fmtHours(ms) {
   if (!ms) return '0.0h';
   return `${(ms / 3600000).toFixed(1)}h`;
+}
+function fmtDuration(ms) {
+  if (!ms || ms <= 0 || !Number.isFinite(ms)) return '—';
+  const sec = Math.floor(ms / 1000);
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 }
 function fmtPct(num, den, decimals = 1) {
   if (!den) return '—';
@@ -666,6 +678,141 @@ function TerritorySection({ matches, userId }) {
 }
 
 /* ------------------------------------------------------------
+   桌遊 Sections（五子棋 / 踩地雷 / 接龍）
+   ------------------------------------------------------------ */
+function GomokuSection({ matches, userId }) {
+  const my = useMemo(() => myMatchesFor(matches, userId, 'gomoku'), [matches, userId]);
+  const g = useMemo(() => aggregateGameType(my), [my]);
+  const trend = useMemo(() => brTrendData(my, 14), [my]);   // 累計勝率趨勢（通用）
+  const avgMoves = g.matches ? Math.round((g.moves ?? 0) / g.matches) : 0;
+  const fastestWin = my.filter(m => m.mine.isWinner)
+    .reduce((mn, m) => Math.min(mn, m.mine.stats?.moves ?? Infinity), Infinity);
+
+  return (
+    <>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+        <BigStat label="場次" value={g.matches ?? 0} sub="雙人對弈" />
+        <BigStat label="勝率" value={fmtPct(g.wins, g.matches)} sub={`${g.wins ?? 0} 勝`} good={(g.wins ?? 0) > 0} />
+        <BigStat label="平均手數" value={avgMoves || '—'} sub="每局落子數" />
+        <BigStat label="最快勝利" value={Number.isFinite(fastestWin) ? `${fastestWin} 手` : '—'} sub="最少手數獲勝" good={Number.isFinite(fastestWin)} />
+      </div>
+      <div>
+        <SectionHeader right="近 14 場勝率趨勢">
+          <span className="fn">=CHART</span>(WINRATE, &quot;line&quot;)
+        </SectionHeader>
+        <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--line-soft)', padding: 8 }}>
+          <FakeLineChart data={trend} yMin={0} yMax={100} />
+        </div>
+      </div>
+    </>
+  );
+}
+
+function MinesweeperSection({ matches, userId }) {
+  const my = useMemo(() => myMatchesFor(matches, userId, 'minesweeper'), [matches, userId]);
+  const g = useMemo(() => aggregateGameType(my), [my]);
+  const clears = my.filter(m => (m.mine.stats?.won ?? (m.mine.isWinner ? 1 : 0))).length;
+  const bestTime = my.filter(m => m.mine.stats?.won)
+    .reduce((mn, m) => Math.min(mn, m.mine.stats?.timeMs ?? Infinity), Infinity);
+  const avgRevealed = g.matches ? Math.round((g.cellsRevealed ?? 0) / g.matches) : 0;
+
+  // 依難度分組
+  const byDiff = useMemo(() => {
+    const map = new Map();
+    for (const m of my) {
+      const d = m.config?.difficulty ?? 'normal';
+      if (!map.has(d)) map.set(d, { d, matches: 0, clears: 0, best: Infinity });
+      const r = map.get(d);
+      r.matches++;
+      if (m.mine.stats?.won) { r.clears++; r.best = Math.min(r.best, m.mine.stats?.timeMs ?? Infinity); }
+    }
+    return [...map.values()];
+  }, [my]);
+
+  return (
+    <>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+        <BigStat label="場次" value={g.matches ?? 0} sub="單人挑戰" />
+        <BigStat label="清盤率" value={fmtPct(clears, g.matches)} sub={`${clears} 次清盤`} good={clears > 0} />
+        <BigStat label="最佳時間" value={fmtDuration(bestTime)} sub="最快清盤" good={Number.isFinite(bestTime)} />
+        <BigStat label="平均翻開" value={avgRevealed || '—'} sub="每局安全格" />
+      </div>
+      <div>
+        <SectionHeader right="按難度樞紐"><span className="fn">=PIVOT</span>(MATCHES) BY 難度</SectionHeader>
+        <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--line-soft)' }}>
+          <div style={{
+            display: 'grid', gridTemplateColumns: '1fr 60px 110px 90px',
+            padding: '6px 10px', background: 'var(--bg-cell-header)', borderBottom: '1px solid var(--line-soft)',
+            fontSize: 10, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)',
+          }}>
+            <span>難度</span><span style={{ textAlign: 'right' }}>場</span><span>清盤率</span><span style={{ textAlign: 'right' }}>最佳</span>
+          </div>
+          {(byDiff.length === 0 ? [{ d: '—', matches: 0, clears: 0, best: Infinity }] : byDiff).map((r) => (
+            <div key={r.d} style={{
+              display: 'grid', gridTemplateColumns: '1fr 60px 110px 90px',
+              padding: '6px 10px', alignItems: 'center', fontSize: 11, fontFamily: 'var(--font-mono)',
+              borderBottom: '1px solid var(--line-soft)',
+            }}>
+              <span style={{ fontFamily: 'var(--font-ui)', color: 'var(--ink)' }}>{DIFF_NAME[r.d] ?? r.d}</span>
+              <span style={{ color: 'var(--ink-muted)', textAlign: 'right' }}>{r.matches}</span>
+              <WinRateBar wr={r.matches ? r.clears / r.matches : 0} />
+              <span style={{ color: 'var(--ink)', textAlign: 'right' }}>{fmtDuration(r.best)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function SolitaireSection({ matches, userId }) {
+  const my = useMemo(() => myMatchesFor(matches, userId, 'solitaire'), [matches, userId]);
+  const g = useMemo(() => aggregateGameType(my), [my]);
+  // 接龍只在完成時記錄，故已記錄的皆為完成局
+  const bestTime = my.reduce((mn, m) => Math.min(mn, m.mine.stats?.timeMs ?? Infinity), Infinity);
+  const fewestMoves = my.reduce((mn, m) => Math.min(mn, m.mine.stats?.moves ?? Infinity), Infinity);
+  const avgMoves = g.matches ? Math.round((g.moves ?? 0) / g.matches) : 0;
+  const recent = [...my].slice(-10).reverse();
+
+  return (
+    <>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+        <BigStat label="完成次數" value={g.matches ?? 0} sub="全部歸位" good={(g.matches ?? 0) > 0} />
+        <BigStat label="最佳時間" value={fmtDuration(bestTime)} sub="最快完成" good={Number.isFinite(bestTime)} />
+        <BigStat label="最少手完成" value={Number.isFinite(fewestMoves) ? `${fewestMoves} 手` : '—'} sub="效率紀錄" />
+        <BigStat label="平均手數" value={avgMoves || '—'} sub="每局移動數" />
+      </div>
+      <div>
+        <SectionHeader right="近 10 次完成"><span className="fn">=FILTER</span>(SOLVED)</SectionHeader>
+        <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--line-soft)' }}>
+          <div style={{
+            display: 'grid', gridTemplateColumns: '80px 60px 90px 1fr',
+            padding: '6px 10px', background: 'var(--bg-cell-header)', borderBottom: '1px solid var(--line-soft)',
+            fontSize: 10, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)',
+          }}>
+            <span>日期</span><span>時間</span><span style={{ textAlign: 'right' }}>用時</span><span style={{ textAlign: 'right' }}>手數</span>
+          </div>
+          {recent.length === 0 ? (
+            <div style={{ padding: '12px 10px', fontSize: 11, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>— 尚無完成紀錄 —</div>
+          ) : recent.map((m) => (
+            <div key={m.id} style={{
+              display: 'grid', gridTemplateColumns: '80px 60px 90px 1fr',
+              padding: '6px 10px', alignItems: 'center', fontSize: 11, fontFamily: 'var(--font-mono)',
+              borderBottom: '1px solid var(--line-soft)',
+            }}>
+              <span style={{ color: 'var(--ink-muted)' }}>{fmtDate(m.endedAt)}</span>
+              <span style={{ color: 'var(--ink-muted)' }}>{fmtTime(m.endedAt)}</span>
+              <span style={{ color: 'var(--ink)', textAlign: 'right' }}>{fmtDuration(m.mine.stats?.timeMs)}</span>
+              <span style={{ color: 'var(--ink)', textAlign: 'right' }}>{m.mine.stats?.moves ?? '—'}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------
    最近場次（跨模式 + chip 跳分頁）
    ------------------------------------------------------------ */
 function RecentMatchesSection({ matches, userId, filterGT, setFilterGT, jumpToTab }) {
@@ -687,6 +834,9 @@ function RecentMatchesSection({ matches, userId, filterGT, setFilterGT, jumpToTa
           <option value="battle-royale">Sheet A · 大逃殺</option>
           <option value="items">Sheet B · 道具戰</option>
           <option value="territory">Sheet C · 領地</option>
+          <option value="gomoku">Sheet D · 五子棋</option>
+          <option value="minesweeper">Sheet E · 踩地雷</option>
+          <option value="solitaire">Sheet F · 接龍</option>
         </select>
       }>
         Sheet · 最近對戰記錄 ｜ <span className="fn">=FILTER</span>(MATCH_LOG, DATE&gt;=TODAY-7)
@@ -764,6 +914,9 @@ function matchSummary(m, mine) {
   if (m.gameType === 'battle-royale') return `K${s.kills ?? 0} · ${mine?.dmgDealt ?? 0}↑/${mine?.dmgTaken ?? 0}↓`;
   if (m.gameType === 'items')         return `擊殺 ${s.kills ?? 0} · 控場 ${(s.trapsPlaced ?? 0) + (s.undoUsed ?? 0)}`;
   if (m.gameType === 'territory')     return `佔領 ${s.teamCellsAtEnd ?? 0}`;
+  if (m.gameType === 'gomoku')        return `${s.moves ?? 0} 手`;
+  if (m.gameType === 'minesweeper')   return `${s.won ? '清盤' : '引爆'} · ${fmtDuration(s.timeMs)}`;
+  if (m.gameType === 'solitaire')     return `${s.moves ?? 0} 手 · ${fmtDuration(s.timeMs)}`;
   return '—';
 }
 function matchNote(m, mine) {
@@ -771,6 +924,9 @@ function matchNote(m, mine) {
   if (m.gameType === 'battle-royale') return brMapName(m.config?.mapId);
   if (m.gameType === 'items')         return `傷害 ${s.damageDealt ?? 0} · undo ${s.undoUsed ?? 0}`;
   if (m.gameType === 'territory')     return `塗格 ${s.cellsPainted ?? 0} · 封閉 ${s.areasCaptured ?? 0}`;
+  if (m.gameType === 'gomoku')        return '五子連線';
+  if (m.gameType === 'minesweeper')   return `${DIFF_NAME[m.config?.difficulty] ?? '普通'} · 翻開 ${s.cellsRevealed ?? 0}`;
+  if (m.gameType === 'solitaire')     return 'Klondike 全歸位';
   return '';
 }
 
@@ -846,14 +1002,23 @@ export default function MatchHistory({ onBack }) {
     br: byGameTypeCount.find(g => g.gt === 'battle-royale')?.matches ?? 0,
     item: byGameTypeCount.find(g => g.gt === 'items')?.matches ?? 0,
     terr: byGameTypeCount.find(g => g.gt === 'territory')?.matches ?? 0,
+    gomo: byGameTypeCount.find(g => g.gt === 'gomoku')?.matches ?? 0,
+    mine: byGameTypeCount.find(g => g.gt === 'minesweeper')?.matches ?? 0,
+    soli: byGameTypeCount.find(g => g.gt === 'solitaire')?.matches ?? 0,
   };
 
   let modeContent;
   if (tab === 'br')   modeContent = <BRSection matches={matches} userId={userId} />;
   if (tab === 'item') modeContent = <ItemsSection matches={matches} userId={userId} />;
   if (tab === 'terr') modeContent = <TerritorySection matches={matches} userId={userId} />;
+  if (tab === 'gomo') modeContent = <GomokuSection matches={matches} userId={userId} />;
+  if (tab === 'mine') modeContent = <MinesweeperSection matches={matches} userId={userId} />;
+  if (tab === 'soli') modeContent = <SolitaireSection matches={matches} userId={userId} />;
 
-  const GAME_LABELS = { 'battle-royale': '經典大逃殺', 'items': '道具戰', 'territory': '數據領地爭奪戰' };
+  const GAME_LABELS = {
+    'battle-royale': '經典大逃殺', 'items': '道具戰', 'territory': '數據領地爭奪戰',
+    'gomoku': '五子棋', 'minesweeper': '踩地雷', 'solitaire': '接龍',
+  };
 
   return (
     <SheetWindow

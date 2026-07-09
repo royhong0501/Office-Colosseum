@@ -1,7 +1,8 @@
 // 多房間管理：建房 / 入房 / 離房 / 觀戰、hall 廣播 ROOMS_LIST。
 // 由 socketHandlers.js 在每個 socket 連線時 attachToHall(socket) 自動加入大廳頻道。
 
-import { MSG, MAX_PLAYERS, GAME_TYPES, DEFAULT_GAME_TYPE } from '@office-colosseum/shared';
+import { MSG, MAX_PLAYERS, GAME_TYPES, DEFAULT_GAME_TYPE, gameMinPlayers, gameMaxPlayers } from '@office-colosseum/shared';
+import { getDifficulty } from '@office-colosseum/shared/src/games/minesweeper/constants.js';
 import { Room } from './room.js';
 
 const HALL = 'hall';
@@ -16,9 +17,11 @@ function sanitizeName(raw, fallback) {
   return trimmed.slice(0, MAX_NAME_LEN);
 }
 
-function clampCapacity(raw) {
-  const n = Number.isFinite(raw) ? raw | 0 : MAX_PLAYERS;
-  return Math.min(Math.max(n, 2), MAX_PLAYERS);
+function clampCapacity(raw, mode) {
+  const lo = gameMinPlayers(mode);
+  const hi = gameMaxPlayers(mode);
+  const n = Number.isFinite(raw) ? raw | 0 : hi;
+  return Math.min(Math.max(n, lo), hi);
 }
 
 export class RoomManager {
@@ -64,15 +67,19 @@ export class RoomManager {
     const mode = GAME_TYPES.includes(payload?.mode) ? payload.mode : DEFAULT_GAME_TYPE;
     const mapId = mode === 'battle-royale' && typeof payload?.mapId === 'string'
       ? payload.mapId.slice(0, 32) : null;
+    // 各 mode 的初始 config：BR 帶 mapId；踩地雷帶 difficulty
+    let config = {};
+    if (mode === 'battle-royale' && mapId) config = { mapId };
+    else if (mode === 'minesweeper') config = { difficulty: getDifficulty(payload?.difficulty).id };
     const isPrivate = !!payload?.isPrivate;
     const password = isPrivate && typeof payload?.password === 'string' && payload.password.length > 0
       ? payload.password.slice(0, 64) : null;
-    const capacity = clampCapacity(payload?.capacity);
+    const capacity = clampCapacity(payload?.capacity, mode);
     const hostId = socket.id;
     const hostUsername = socket.data?.user?.username ?? '?';
 
     const room = new Room(this.io.to(id), {
-      id, name, mode, mapId, isPrivate, password, capacity, hostId, hostUsername,
+      id, name, mode, mapId, config, isPrivate, password, capacity, hostId, hostUsername,
     });
     this.rooms.set(id, room);
     const join = this.joinRoom(socket, id, { silent: true, skipPasswordCheck: true });
@@ -176,6 +183,13 @@ export class RoomManager {
   _gcRoom(rid) {
     const room = this.rooms.get(rid);
     if (!room) return;
-    if (!room.hasHuman() && !room.match) this.rooms.delete(rid);
+    if (!room.hasHuman()) {
+      // 沒有真人了：若還有 match 在跑（例如單人遊戲玩家斷線），中止它避免 tick loop 空轉
+      if (room.match) {
+        room.match.abort();
+        room.match = null;
+      }
+      this.rooms.delete(rid);
+    }
   }
 }

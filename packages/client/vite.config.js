@@ -14,6 +14,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    // Windows host → Linux container 的 bind mount 不會觸發 inotify，
+    // 導致 Vite HMR 收不到檔案變更（改了 code 但畫面不更新）。改用輪詢監聽。
+    watch: { usePolling: true, interval: 300 },
     proxy: {
       '/socket.io': { target, ws: true },
       '/auth':      { target },

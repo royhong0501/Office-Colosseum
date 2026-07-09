@@ -14,12 +14,16 @@ import { useState, useMemo } from 'react';
 import {
   MAPS, ARENA_COLS, ARENA_ROWS,
 } from '@office-colosseum/shared/src/games/br/index.js';
-import { GAME_TYPES, DEFAULT_GAME_TYPE, MAX_PLAYERS, MIN_PLAYERS } from '@office-colosseum/shared';
+import { GAME_TYPES, DEFAULT_GAME_TYPE, MAX_PLAYERS, gameMinPlayers, gameMaxPlayers } from '@office-colosseum/shared';
+import { DIFFICULTIES, DEFAULT_DIFFICULTY } from '@office-colosseum/shared/src/games/minesweeper/constants.js';
 
 const MODE_META = {
   'battle-royale': { label: '街頭混戰', desc: '射擊 + 毒圈 + 掩體；最後存活贏', formula: '=BATTLE.ROYALE()' },
   'items':         { label: '道具戰',   desc: 'HP+MP 雙資源；5 種儲存格技能', formula: '=ITEMS()' },
   'territory':     { label: '領地戰',   desc: '塗色 + flood fill；佔地最多隊贏', formula: '=TERRITORY()' },
+  'gomoku':        { label: '五子棋',   desc: '回合制對弈；先連五子者勝（可對電腦）', formula: '=GOMOKU()' },
+  'minesweeper':   { label: '踩地雷',   desc: '單人；翻開所有非雷格，右鍵插旗', formula: '=MINESWEEPER()' },
+  'solitaire':     { label: '接龍',     desc: '單人 Klondike；把 52 張依花色歸位', formula: '=SOLITAIRE()' },
 };
 
 function MiniMap({ map }) {
@@ -52,15 +56,28 @@ function MiniMap({ map }) {
   );
 }
 
-const CAPACITY_OPTIONS = [2, 4, 6, 8].filter(n => n >= MIN_PLAYERS && n <= MAX_PLAYERS);
+const CAPACITY_BASE = [1, 2, 4, 6, 8];
 
 export default function RoomCreateModal({ defaultName = '', onCreate, onClose }) {
   const [roomName, setRoomName] = useState(defaultName);
   const [mode, setMode] = useState(DEFAULT_GAME_TYPE);
   const [mapIdx, setMapIdx] = useState(0);
   const [capacity, setCapacity] = useState(MAX_PLAYERS);
+  const [difficulty, setDifficulty] = useState(DEFAULT_DIFFICULTY);
   const [isPrivate, setIsPrivate] = useState(false);
   const [password, setPassword] = useState('');
+
+  // 依 gameType 決定可選容量（五子棋固定 2；單人桌遊為 1）
+  const capOptions = useMemo(
+    () => CAPACITY_BASE.filter(n => n >= gameMinPlayers(mode) && n <= gameMaxPlayers(mode)),
+    [mode],
+  );
+
+  // 切換模式時把容量夾進該模式的合法範圍
+  const selectMode = (g) => {
+    setMode(g);
+    setCapacity((c) => Math.min(Math.max(c, gameMinPlayers(g)), gameMaxPlayers(g)));
+  };
 
   const selectedMap = MAPS[mapIdx] ?? MAPS[0];
 
@@ -76,6 +93,7 @@ export default function RoomCreateModal({ defaultName = '', onCreate, onClose })
       roomName: roomName.trim() || undefined,
       mode,
       mapId: mode === 'battle-royale' ? selectedMap.id : null,
+      difficulty: mode === 'minesweeper' ? difficulty : undefined,
       capacity,
       isPrivate,
       password: isPrivate ? password : null,
@@ -134,14 +152,14 @@ export default function RoomCreateModal({ defaultName = '', onCreate, onClose })
 
           {/* 模式 */}
           <Field label="MODE">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
               {GAME_TYPES.map((g) => {
                 const meta = MODE_META[g];
                 const active = mode === g;
                 return (
                   <div
                     key={g}
-                    onClick={() => setMode(g)}
+                    onClick={() => selectMode(g)}
                     style={{
                       padding: '10px 12px',
                       cursor: 'pointer',
@@ -228,6 +246,34 @@ export default function RoomCreateModal({ defaultName = '', onCreate, onClose })
             </Field>
           )}
 
+          {/* 難度：只在踩地雷顯示 */}
+          {mode === 'minesweeper' && (
+            <Field label="DIFFICULTY">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                {Object.values(DIFFICULTIES).map((d) => {
+                  const active = difficulty === d.id;
+                  return (
+                    <div
+                      key={d.id}
+                      onClick={() => setDifficulty(d.id)}
+                      style={{
+                        padding: '8px 10px', cursor: 'pointer',
+                        border: `1px solid ${active ? 'var(--accent)' : 'var(--line-soft)'}`,
+                        background: active ? 'var(--bg-paper-alt)' : 'var(--bg-paper)',
+                        boxShadow: active ? 'inset 0 0 0 1px var(--accent)' : 'none',
+                      }}
+                    >
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>{d.name}</div>
+                      <div style={{ fontSize: 9.5, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)', marginTop: 2 }}>
+                        {d.cols}×{d.rows} · {d.mines} 雷
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Field>
+          )}
+
           {/* 容量 + 私人房 + 密碼 */}
           <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 14 }}>
             <Field label="CAPACITY">
@@ -236,7 +282,7 @@ export default function RoomCreateModal({ defaultName = '', onCreate, onClose })
                 onChange={(e) => setCapacity(parseInt(e.target.value, 10))}
                 style={inputStyle}
               >
-                {CAPACITY_OPTIONS.map(n => (
+                {capOptions.map(n => (
                   <option key={n} value={n}>{n} 人</option>
                 ))}
               </select>

@@ -25,30 +25,94 @@ function renderContentWithMentions(content) {
   });
 }
 
-function ReplyQuote({ replyToContent, replyToSenderName }) {
+function ReplyQuote({ replyToId, replyToContent, replyToSenderName, onClick }) {
   if (!replyToContent) return null;
   const truncated = replyToContent.length > 60
     ? replyToContent.slice(0, 60) + '…'
     : replyToContent;
+  const clickable = !!onClick;
   return (
-    <div style={{
-      fontSize: 9, fontFamily: 'var(--font-mono)',
-      color: 'var(--ink-muted)',
-      borderLeft: '2px solid var(--accent-link)',
-      paddingLeft: 6, marginBottom: 2,
-      maxWidth: '90%',
-    }}>
+    <div
+      onClick={clickable && replyToId ? () => onClick(replyToId) : undefined}
+      title={clickable ? '點擊跳到原訊息' : undefined}
+      style={{
+        fontSize: 9, fontFamily: 'var(--font-mono)',
+        color: 'var(--ink-muted)',
+        borderLeft: '2px solid var(--accent-link)',
+        paddingLeft: 6, marginBottom: 2,
+        maxWidth: '90%',
+        cursor: clickable && replyToId ? 'pointer' : 'default',
+      }}
+    >
       ↳ <span style={{ color: 'var(--accent-link)' }}>@{replyToSenderName ?? '?'}</span>: {truncated}
     </div>
   );
 }
 
-export default function MessageList({ messages, selfId, emptyHint, channel, onSelectReply }) {
+export default function MessageList({
+  messages, selfId, emptyHint, channel,
+  onSelectReply,
+  hasMore = false, onLoadOlder,
+}) {
   const ref = useRef(null);
   const [hoverId, setHoverId] = useState(null);
+  const [flashId, setFlashId] = useState(null);
+  // 拉舊訊息時，先記下原本的 scrollHeight 與 scrollTop；prepend 完成後算 delta 加回 scrollTop
+  // 才不會「跳到頂」。
+  const restoreRef = useRef(null);
+  const lastFirstIdRef = useRef(null);
+  const loadingOlderRef = useRef(false);
+
+  // 當 messages 第一筆 id 改變（= prepend 了舊訊息）時，恢復卷軸位置
   useEffect(() => {
-    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
-  }, [messages.length]);
+    const container = ref.current;
+    if (!container) return;
+    const firstId = messages[0]?.id ?? null;
+    if (restoreRef.current && lastFirstIdRef.current !== firstId) {
+      const { prevHeight, prevTop } = restoreRef.current;
+      const delta = container.scrollHeight - prevHeight;
+      container.scrollTop = prevTop + delta;
+      restoreRef.current = null;
+      loadingOlderRef.current = false;
+    } else if (!restoreRef.current) {
+      // 一般新訊息（append 到底）→ 自動 scroll 到底
+      container.scrollTop = container.scrollHeight;
+    }
+    lastFirstIdRef.current = firstId;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length, messages[0]?.id]);
+
+  // scroll 到頂時觸發載入更舊
+  const handleScroll = (e) => {
+    if (!hasMore || !onLoadOlder) return;
+    if (loadingOlderRef.current) return;
+    const container = e.currentTarget;
+    if (container.scrollTop > 4) return;
+    const oldest = messages[0];
+    if (!oldest) return;
+    loadingOlderRef.current = true;
+    restoreRef.current = {
+      prevHeight: container.scrollHeight,
+      prevTop: container.scrollTop,
+    };
+    onLoadOlder(oldest.createdAt);
+  };
+
+  // reply quote 點擊：scroll 到原訊息 + 1.5s 高亮
+  const handleJumpToMessage = (id) => {
+    const container = ref.current;
+    if (!container) return;
+    const target = container.querySelector(`[data-msg-id="${id}"]`);
+    if (!target) {
+      // 原訊息已捲出範圍（目前 messages 沒有），無聲略過
+      return;
+    }
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setFlashId(id);
+    setTimeout(() => {
+      setFlashId((cur) => (cur === id ? null : cur));
+    }, 1500);
+  };
 
   if (!messages.length) {
     return (
@@ -66,23 +130,41 @@ export default function MessageList({ messages, selfId, emptyHint, channel, onSe
   const showReadCount = channel === 'dm' || channel === 'room';
 
   return (
-    <div ref={ref} style={{
-      flex: 1, overflowY: 'auto', minHeight: 0,
-      padding: '6px 8px',
-      display: 'flex', flexDirection: 'column', gap: 6,
-    }}>
+    <div
+      ref={ref}
+      onScroll={handleScroll}
+      style={{
+        flex: 1, overflowY: 'auto', minHeight: 0,
+        padding: '6px 8px',
+        display: 'flex', flexDirection: 'column', gap: 6,
+      }}
+    >
+      {hasMore && (
+        <div style={{
+          fontSize: 9, color: 'var(--ink-muted)',
+          fontFamily: 'var(--font-mono)',
+          textAlign: 'center', padding: '2px 0',
+        }}>
+          ↑ 滾到頂載入更舊訊息
+        </div>
+      )}
       {messages.map((m) => {
         const mine = m.senderId === selfId;
         const showReplyBtn = onSelectReply && hoverId === m.id;
+        const isFlash = flashId === m.id;
         return (
           <div
             key={m.id}
+            data-msg-id={m.id}
             onMouseEnter={() => setHoverId(m.id)}
             onMouseLeave={() => setHoverId((cur) => (cur === m.id ? null : cur))}
             style={{
               display: 'flex', flexDirection: 'column',
               alignItems: mine ? 'flex-end' : 'flex-start',
               position: 'relative',
+              outline: isFlash ? '2px solid var(--accent-link)' : 'none',
+              outlineOffset: 2,
+              transition: 'outline 0.6s ease-out',
             }}
           >
             <div style={{
@@ -106,8 +188,10 @@ export default function MessageList({ messages, selfId, emptyHint, channel, onSe
               )}
             </div>
             <ReplyQuote
+              replyToId={m.replyToId}
               replyToContent={m.replyToContent}
               replyToSenderName={m.replyToSenderName}
+              onClick={handleJumpToMessage}
             />
             <div style={{
               maxWidth: '90%',

@@ -157,6 +157,9 @@ export default function App() {
         config={config}
         initialState={matchStart}
         onEnd={(end) => { setMatchEnd(end); setScreen('gameover'); }}
+        onRematch={() => { getSocket().emit(MSG.READY, { ready: false }); setScreen('room'); }}
+        onExit={() => { getSocket().emit(MSG.LEAVE); setRoomInfo(null); setScreen('lobby'); }}
+        onHome={() => { getSocket().emit(MSG.LEAVE); setRoomInfo(null); setScreen('menu'); }}
       />
     );
   } else if (screen === 'gameover') {
@@ -196,7 +199,7 @@ export default function App() {
         />
       )}
       {/* 只在戰鬥畫面顯示 debug overlay；其他畫面（lobby/menu/auth/...）一律不掛 */}
-      <DebugOverlay visible={debugVisible && (screen === 'battle' || screen === 'spectate')} />
+      <DebugOverlay visible={debugVisible && (screen === 'battle' || screen === 'spectate') && !['gomoku', 'minesweeper', 'solitaire'].includes(gameType)} />
     </>
   );
 }

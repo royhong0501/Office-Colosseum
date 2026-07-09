@@ -99,7 +99,10 @@ export class Match {
 
     this.io.emit(MSG.SNAPSHOT, sim.buildSnapshotPayload(state, newEvents, { acks: this.lastSeqByPlayer }));
 
-    if (state.phase === 'ended' || sim.aliveCount(state) <= 1) this.end();
+    // 「最後一人存活即結束」是大逃殺式規則；單人/回合制遊戲（sim 匯出
+    // AUTO_END_ON_LAST_ALIVE = false）只認 phase==='ended'，否則單人 aliveCount=1 會秒結束。
+    const autoEndOnLastAlive = sim.AUTO_END_ON_LAST_ALIVE !== false;
+    if (state.phase === 'ended' || (autoEndOnLastAlive && sim.aliveCount(state) <= 1)) this.end();
   }
 
   /**
@@ -175,6 +178,12 @@ export class Match {
           }
           break;
         }
+        case 'stone_placed': {
+          // 五子棋：累計落子數
+          const g = gs(e.playerId);
+          if (g) g.moves = (g.moves | 0) + 1;
+          break;
+        }
         case 'area_captured': {
           // 隊內每人同獲歸屬
           const team = this.state?.teams?.find(t => t.id === e.teamId);
@@ -210,9 +219,24 @@ export class Match {
     }
   }
 
+  /** 中止對局（玩家全部離開）：停 tick loop、不記錄戰績、不觸發 onEnd。 */
+  abort() {
+    if (this.interval) { clearInterval(this.interval); this.interval = null; }
+    this.aborted = true;
+  }
+
   end() {
+    if (this.aborted) return;
     clearInterval(this.interval); this.interval = null;
     if (this.gameType === 'territory') this._finalizeTerritoryStats();
+    // 通用 finalizeStats hook：sim 可在結算時填入 per-player gameStats（單人遊戲時間 / 完成度等）
+    const fin = this.game.sim.finalizeStats?.(this.state);
+    if (fin) {
+      for (const [pid, kv] of Object.entries(fin)) {
+        const g = this.stats[pid]?.gameStats;
+        if (g) Object.assign(g, kv);
+      }
+    }
 
     const winnerId = this.game.sim.getWinner(this.state);
     const endedAt = Date.now();

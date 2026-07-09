@@ -1,10 +1,28 @@
 // Socket event 名稱與共用常數。
 // 多遊戲平台：server 依 gameType 分派 simulation；client 依 gameType 路由戰鬥畫面。
 
-export const GAME_TYPES = ['battle-royale', 'items', 'territory'];
+import { MIN_PLAYERS, MAX_PLAYERS } from './constants.js';
+
+export const GAME_TYPES = ['battle-royale', 'items', 'territory', 'gomoku', 'minesweeper', 'solitaire'];
 
 // 預設模式：Lobby 剛建立時的 gameType（Phase 0 只有 BR 上線）
 export const DEFAULT_GAME_TYPE = 'battle-royale';
+
+// 每遊戲 metadata（單一真實來源）：lobby 開賽門檻 / 房間容量 / 戰績寫入門檻都查這裡。
+// 桌遊改變了「至少 2 人」的即時制假設：五子棋恰 2 人；踩地雷 / 接龍為單人。
+// 未列出的 gameType 回退到全域 MIN_PLAYERS / MAX_PLAYERS。
+export const GAME_META = {
+  'battle-royale': { minPlayers: 2, maxPlayers: 8 },
+  'items':         { minPlayers: 2, maxPlayers: 8 },
+  'territory':     { minPlayers: 2, maxPlayers: 6 },
+  'gomoku':        { minPlayers: 2, maxPlayers: 2 },
+  'minesweeper':   { minPlayers: 1, maxPlayers: 1, solo: true },
+  'solitaire':     { minPlayers: 1, maxPlayers: 1, solo: true },
+};
+
+export const gameMinPlayers = (gt) => GAME_META[gt]?.minPlayers ?? MIN_PLAYERS;
+export const gameMaxPlayers = (gt) => GAME_META[gt]?.maxPlayers ?? MAX_PLAYERS;
+export const isSoloGame = (gt) => !!GAME_META[gt]?.solo;
 
 export const MSG = {
   // ---- 大廳（多房列表）----

@@ -13,11 +13,20 @@ import * as itemsSim from '@office-colosseum/shared/src/games/items/index.js';
 import * as itemsBot from './itemsBot.js';
 import * as territorySim from '@office-colosseum/shared/src/games/territory/index.js';
 import * as territoryBot from './territoryBot.js';
+import * as gomokuSim from '@office-colosseum/shared/src/games/gomoku/index.js';
+import * as gomokuBot from './gomokuBot.js';
+import * as minesweeperSim from '@office-colosseum/shared/src/games/minesweeper/index.js';
+import * as minesweeperBot from './minesweeperBot.js';
+import * as solitaireSim from '@office-colosseum/shared/src/games/solitaire/index.js';
+import * as solitaireBot from './solitaireBot.js';
 
 export const GAMES = {
   'battle-royale': { sim: brSim, bot: brBot },
   'items':         { sim: itemsSim, bot: itemsBot },
   'territory':     { sim: territorySim, bot: territoryBot },
+  'gomoku':        { sim: gomokuSim, bot: gomokuBot },
+  'minesweeper':   { sim: minesweeperSim, bot: minesweeperBot },
+  'solitaire':     { sim: solitaireSim, bot: solitaireBot },
 };
 
 export function loadGame(gameType) {

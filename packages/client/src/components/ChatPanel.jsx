@@ -101,6 +101,7 @@ export default function ChatPanel({ open, onToggle, currentRoomId }) {
 
   const {
     state, send, openDm, closeDm, markDmRead, clearMentions, clearError,
+    requestOlderHistory,
   } = useChatStore({
     selfId,
     activeChannelRef,
@@ -151,12 +152,29 @@ export default function ChatPanel({ open, onToggle, currentRoomId }) {
     return () => clearTimeout(id);
   }, [state.error, clearError]);
 
+  // Map<userId, status>，給 Composer @ autocomplete 排序 + UserSidebar 用
+  const onlineStatusMap = useMemo(() => {
+    const m = new Map();
+    for (const o of state.online) m.set(o.userId, o.status ?? 'online');
+    return m;
+  }, [state.online]);
+
   const dmTabs = useMemo(() => Object.values(state.dmThreads), [state.dmThreads]);
   const totalUnread = useMemo(
     () => dmTabs.reduce((s, t) => s + (t.unread || 0), 0),
     [dmTabs],
   );
-  const hasMention = state.mentionedMessageIds.length > 0;
+  // 每個 channel 是否有未讀提及（per-channel 紅點）
+  const mentionFlags = useMemo(() => {
+    const m = state.mentionedByChannel ?? { public: [], announce: [], room: {}, dm: [] };
+    return {
+      public: (m.public?.length ?? 0) > 0,
+      announce: (m.announce?.length ?? 0) > 0,
+      room: currentRoomId ? ((m.room?.[currentRoomId]?.length ?? 0) > 0) : false,
+      dm: (m.dm?.length ?? 0) > 0,
+    };
+  }, [state.mentionedByChannel, currentRoomId]);
+  const hasMention = mentionFlags.public || mentionFlags.announce || mentionFlags.room || mentionFlags.dm;
 
   if (!open) {
     return (
@@ -182,27 +200,39 @@ export default function ChatPanel({ open, onToggle, currentRoomId }) {
     if (replyTarget) setReplyTarget(null);
   };
 
+  // hasMore + onLoadOlder：MessageList 滾到頂時用
+  let hasMore = false;
+  let onLoadOlder = null;
+
   if (activeChannel === 'public') {
     messages = state.publicMessages;
     emptyHint = '大廳還沒有人說話。先打個招呼吧！';
     composerPlaceholder = '對全站說...';
     onSend = buildSendFn('public', {});
+    hasMore = state.publicHasMore;
+    onLoadOlder = (before) => requestOlderHistory({ channel: 'public', before });
   } else if (activeChannel === 'announce') {
     messages = state.announceMessages;
     emptyHint = '尚無公告';
     canSend = userIsAdmin;
     composerPlaceholder = canSend ? '發送公告（全站可見）...' : '只有 ADMIN 可發公告';
     onSend = buildSendFn('announce', {});
+    hasMore = state.announceHasMore;
+    onLoadOlder = (before) => requestOlderHistory({ channel: 'announce', before });
   } else if (activeChannel === 'room') {
     messages = state.roomThread?.messages ?? [];
     emptyHint = '房間頻道還沒有訊息';
     composerPlaceholder = '在房間內說...';
     onSend = buildSendFn('room', { roomId: currentRoomId });
+    hasMore = !!state.roomThread?.hasMore;
+    onLoadOlder = (before) => requestOlderHistory({ channel: 'room', roomId: currentRoomId, before });
   } else if (activeChannel === 'dm' && activePeerId) {
     messages = state.dmThreads[activePeerId]?.messages ?? [];
     emptyHint = '尚無訊息，輸入後按 Enter 開始對話';
     composerPlaceholder = `對 @${state.dmThreads[activePeerId]?.peer?.displayName ?? '對方'} 說...`;
     onSend = buildSendFn('dm', { recipientId: activePeerId });
+    hasMore = !!state.dmThreads[activePeerId]?.hasMore;
+    onLoadOlder = (before) => requestOlderHistory({ channel: 'dm', peerId: activePeerId, before });
   }
 
   // 切 channel / 切 peer 時清掉 reply（避免回覆條跨頻道殘留）
@@ -217,8 +247,13 @@ export default function ChatPanel({ open, onToggle, currentRoomId }) {
   const handleSelectTab = (channel, peerId) => {
     setActiveChannel(channel);
     setActivePeerId(peerId ?? null);
-    setReplyTarget(null);    // 切 channel/peer 時清掉舊的回覆目標
-    if (channel === 'announce') clearMentions();   // 切到 announce 假設清掉提及紅點
+    setReplyTarget(null);
+    // 清掉切換到的 channel 對應的 mention 紅點
+    if (channel === 'room' && currentRoomId) {
+      clearMentions({ channel: 'room', roomId: currentRoomId });
+    } else if (channel === 'public' || channel === 'announce' || channel === 'dm') {
+      clearMentions({ channel });
+    }
   };
   const handleCloseTab = (peerId) => {
     if (activeChannel === 'dm' && activePeerId === peerId) {
@@ -265,7 +300,7 @@ export default function ChatPanel({ open, onToggle, currentRoomId }) {
             roomLabel={currentRoomId ? `房間 R-${(currentRoomId.replace(/^room-/, '').padStart(4, '0').slice(-4)).toUpperCase()}` : null}
             dmTabs={dmTabs}
             onlineCount={state.online.length}
-            hasMention={hasMention}
+            mentionFlags={mentionFlags}
             onSelect={handleSelectTab}
             onCloseDm={handleCloseTab}
           />
@@ -276,6 +311,8 @@ export default function ChatPanel({ open, onToggle, currentRoomId }) {
             emptyHint={emptyHint}
             channel={activeChannel}
             onSelectReply={canSend ? handleSelectReply : null}
+            hasMore={hasMore}
+            onLoadOlder={onLoadOlder}
           />
 
           {state.error && (
@@ -294,6 +331,8 @@ export default function ChatPanel({ open, onToggle, currentRoomId }) {
             disabled={!canSend}
             replyTarget={replyTarget}
             onCancelReply={() => setReplyTarget(null)}
+            allUsers={state.allUsers}
+            onlineMap={onlineStatusMap}
           />
         </div>
       </div>
