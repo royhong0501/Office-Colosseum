@@ -2,7 +2,7 @@
 // 收到一個「scoped broadcaster」（形同 io.to(roomId)）當成原本的 io，
 // 所以 Lobby/Match 內部的 this.io.emit() 只會打到本房的 socket。
 
-import { MAX_PLAYERS, DEFAULT_GAME_TYPE } from '@office-colosseum/shared';
+import { MAX_PLAYERS, DEFAULT_GAME_TYPE, gameMinPlayers, gameMaxPlayers } from '@office-colosseum/shared';
 import { Lobby } from './lobby.js';
 import { Match } from './match.js';
 
@@ -12,6 +12,7 @@ export class Room {
       id, name,
       mode = DEFAULT_GAME_TYPE,
       mapId = null,
+      config = null,
       isPrivate = false,
       password = null,
       capacity = MAX_PLAYERS,
@@ -25,7 +26,11 @@ export class Room {
     this.mapId = mapId;
     this.isPrivate = isPrivate;
     this.password = password;        // 私人房密碼（in-memory plain；v1 用，正式改 hash）
-    this.capacity = Math.min(Math.max(capacity | 0, 2), MAX_PLAYERS);
+    // 容量下限依 gameType（單人桌遊可為 1）；上限亦依 gameType（五子棋恰 2）。
+    this.capacity = Math.min(
+      Math.max(capacity | 0, gameMinPlayers(mode)),
+      gameMaxPlayers(mode),
+    );
     this.hostId = hostId;
     this.hostUsername = hostUsername;
     this.createdAt = Date.now();
@@ -33,7 +38,7 @@ export class Room {
     this.lobby = new Lobby(scope);
     // 預設 lobby 的 mode/config（避開 setGameType 的 host 檢查）
     this.lobby.gameType = this.mode;
-    this.lobby.config = mapId ? { mapId } : {};
+    this.lobby.config = config ?? (mapId ? { mapId } : {});
     this.match = null;
   }
 

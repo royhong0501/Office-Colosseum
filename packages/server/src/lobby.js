@@ -1,4 +1,4 @@
-import { MAX_PLAYERS, MIN_PLAYERS, MSG, ALL_CHARACTERS, DEFAULT_GAME_TYPE, GAME_TYPES } from '@office-colosseum/shared';
+import { MSG, ALL_CHARACTERS, DEFAULT_GAME_TYPE, GAME_TYPES, gameMinPlayers, gameMaxPlayers } from '@office-colosseum/shared';
 
 // Player 形狀（broadcast 給 client 的 LOBBY_STATE 也是這個 shape）：
 //   { id: socketId, userId, displayName, characterId, ready, isHost, isBot }
@@ -24,7 +24,7 @@ export class Lobby {
       this.broadcast();
       return { ok: true };
     }
-    if (this.players.size >= MAX_PLAYERS) return { error: 'full' };
+    if (this.players.size >= gameMaxPlayers(this.gameType)) return { error: 'full' };
     const isHost = this.players.size === 0;
     this.players.set(socketId, {
       id: socketId, userId, displayName, characterId: null,
@@ -68,13 +68,13 @@ export class Lobby {
     return { ok: true };
   }
   canStart() {
-    if (this.players.size < MIN_PLAYERS) return false;
+    if (this.players.size < gameMinPlayers(this.gameType)) return false;
     return [...this.players.values()].every(p => p.ready && p.characterId);
   }
   addBot(requesterId) {
     const requester = this.players.get(requesterId);
     if (!requester?.isHost) return { error: 'not_host' };
-    if (this.players.size >= MAX_PLAYERS) return { error: 'lobby_full' };
+    if (this.players.size >= gameMaxPlayers(this.gameType)) return { error: 'lobby_full' };
     const seq = this.nextBotSeq++;
     const id = `bot-${seq}`;
     const character = ALL_CHARACTERS[Math.floor(Math.random() * ALL_CHARACTERS.length)];

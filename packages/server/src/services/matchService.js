@@ -2,10 +2,12 @@
 // 寫入策略：transaction 一次寫 Match + N 個 MatchParticipant。
 // 寫入後 invalidate leaderboard cache。
 
+import { gameMinPlayers } from '@office-colosseum/shared';
 import { getPrisma } from '../db/prisma.js';
 import { invalidateLeaderboard } from './leaderboardCache.js';
 import { get as getRecordsCache, invalidateRecords } from './recordsCache.js';
 
+// 寫入戰績所需的最少「真人」數；預設 2，單人遊戲（gomoku 以外的桌遊）由 gameMinPlayers 放寬到 1。
 export const MIN_REAL_PLAYERS = 2;
 
 // 每款遊戲對 MatchParticipant.stats JSON 認可的欄位白名單。
@@ -27,6 +29,9 @@ export const STAT_KEYS = {
     'cellsPainted', 'areasCaptured', 'cellsCapturedByFormatbrush',
     'teamCellsAtEnd',
   ],
+  'gomoku': ['moves'],
+  'minesweeper': ['timeMs', 'cellsRevealed', 'won'],
+  'solitaire': ['moves', 'timeMs', 'won'],
 };
 
 function sanitizeStats(gameType, raw) {
@@ -42,7 +47,8 @@ function sanitizeStats(gameType, raw) {
 // 至少要 MIN_REAL_PLAYERS 個非 bot 才寫入。
 export async function recordMatch({ gameType, config, startedAt, endedAt, participants }) {
   const real = participants.filter(p => !p.isBot && p.userId);
-  if (real.length < MIN_REAL_PLAYERS) {
+  const minReal = gameMinPlayers(gameType);
+  if (real.length < minReal) {
     return { skipped: true, reason: 'not_enough_real_players' };
   }
 
