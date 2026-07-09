@@ -13,7 +13,7 @@ import ArenaMinesweeper from './ArenaMinesweeper.jsx';
 import BattleHudMinesweeper from './BattleHudMinesweeper.jsx';
 import { useInputMinesweeper } from './useInputMinesweeper.js';
 
-export default function MinesweeperBattle({ initialState, config, onEnd, onRematch, onExit, readOnly = false }) {
+export default function MinesweeperBattle({ initialState, config, onEnd, onRematch, onExit, onHome, readOnly = false }) {
   const socket = getSocket();
   const selfId = socket.id;
   const init = initialState?.state ?? {};
@@ -154,6 +154,7 @@ export default function MinesweeperBattle({ initialState, config, onEnd, onRemat
           phase={phase}
           result={result}
           elapsedMs={elapsedMs}
+          onHome={onHome}
         />
 
         {/* 化身：右下（大），貼在棋盤區右側、避開右側 HUD 與右下 FPS 視窗 */}

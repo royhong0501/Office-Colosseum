@@ -199,7 +199,7 @@ export default function App() {
         />
       )}
       {/* 只在戰鬥畫面顯示 debug overlay；其他畫面（lobby/menu/auth/...）一律不掛 */}
-      <DebugOverlay visible={debugVisible && (screen === 'battle' || screen === 'spectate')} />
+      <DebugOverlay visible={debugVisible && (screen === 'battle' || screen === 'spectate') && !['gomoku', 'minesweeper', 'solitaire'].includes(gameType)} />
     </>
   );
 }

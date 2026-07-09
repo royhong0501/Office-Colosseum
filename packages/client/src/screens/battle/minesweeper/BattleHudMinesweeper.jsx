@@ -7,7 +7,7 @@ function fmtSec(ms) {
 }
 
 export default function BattleHudMinesweeper({
-  difficulty, mineCount, flagsUsed, revealedCount, safeTotal, phase, result, elapsedMs,
+  difficulty, mineCount, flagsUsed, revealedCount, safeTotal, phase, result, elapsedMs, onHome,
 }) {
   const minesLeft = mineCount - flagsUsed;
   const pct = safeTotal ? Math.round((revealedCount / safeTotal) * 100) : 0;
@@ -70,6 +70,16 @@ export default function BattleHudMinesweeper({
         <div>翻開所有非雷格即勝</div>
         <div>ESC 老闆鍵</div>
       </div>
+
+      {/* 放棄回首頁 */}
+      <button
+        onClick={onHome}
+        style={{
+          marginTop: 'auto', padding: '8px 0', cursor: 'pointer',
+          background: 'var(--bg-input)', color: 'var(--ink)',
+          border: '1px solid var(--line)', fontFamily: 'var(--font-mono)', fontSize: 11,
+        }}
+      >← 放棄回首頁</button>
     </aside>
   );
 }

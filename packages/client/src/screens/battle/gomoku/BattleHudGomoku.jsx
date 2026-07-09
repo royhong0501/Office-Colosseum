@@ -9,7 +9,7 @@ function fmtSec(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export default function BattleHudGomoku({ selfId, players, order, turn, turnColor, moveCount, turnEndsAtMs, now, phase }) {
+export default function BattleHudGomoku({ selfId, players, order, turn, turnColor, moveCount, turnEndsAtMs, now, phase, onHome }) {
   const self = players?.[selfId];
   const myColor = self?.color;
   const myTurn = phase === 'playing' && turn === selfId;
@@ -95,6 +95,16 @@ export default function BattleHudGomoku({ selfId, players, order, turn, turnColo
         <div>逾時未落子判負</div>
         <div>ESC 老闆鍵</div>
       </div>
+
+      {/* 放棄回首頁 */}
+      <button
+        onClick={onHome}
+        style={{
+          marginTop: 'auto', padding: '8px 0', cursor: 'pointer',
+          background: 'var(--bg-input)', color: 'var(--ink)',
+          border: '1px solid var(--line)', fontFamily: 'var(--font-mono)', fontSize: 11,
+        }}
+      >← 放棄回首頁</button>
     </aside>
   );
 }

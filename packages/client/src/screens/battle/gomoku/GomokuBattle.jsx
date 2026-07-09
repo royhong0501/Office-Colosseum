@@ -39,7 +39,7 @@ function hasFourThreat(board, color, size) {
   return false;
 }
 
-export default function GomokuBattle({ initialState, config, onEnd, onRematch, onExit, readOnly = false }) {
+export default function GomokuBattle({ initialState, config, onEnd, onRematch, onExit, onHome, readOnly = false }) {
   const socket = getSocket();
   const selfId = socket.id;
   const init = initialState?.state ?? {};
@@ -228,6 +228,7 @@ export default function GomokuBattle({ initialState, config, onEnd, onRematch, o
           turnEndsAtMs={turnEndsAtMs}
           now={now}
           phase={phase}
+          onHome={onHome}
         />
 
         {endModal && (

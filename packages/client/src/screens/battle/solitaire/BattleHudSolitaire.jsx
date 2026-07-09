@@ -6,7 +6,7 @@ function fmtSec(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export default function BattleHudSolitaire({ foundations, moves, elapsedMs, phase, result, onAuto, onDraw }) {
+export default function BattleHudSolitaire({ foundations, moves, elapsedMs, phase, result, onAuto, onDraw, onHome }) {
   const totalDone = (foundations ?? []).reduce((n, f) => n + f.length, 0);
 
   return (
@@ -67,11 +67,21 @@ export default function BattleHudSolitaire({ foundations, moves, elapsedMs, phas
       <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--line-soft)', padding: 8, fontSize: 10, color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
         <div style={{ color: 'var(--ink-soft)', fontWeight: 600, marginBottom: 4 }}>操作提示</div>
         <div>點牌堆左上抽牌</div>
-        <div>拖曳牌到目標堆移動</div>
+        <div>點牌選取 → 點目標堆移動</div>
         <div>雙擊快速歸位</div>
         <div>tableau 降序異色、空列放 K</div>
         <div>ESC 老闆鍵</div>
       </div>
+
+      {/* 放棄回首頁 */}
+      <button
+        onClick={onHome}
+        style={{
+          marginTop: 'auto', padding: '8px 0', cursor: 'pointer',
+          background: 'var(--bg-input)', color: 'var(--ink)',
+          border: '1px solid var(--line)', fontFamily: 'var(--font-mono)', fontSize: 11,
+        }}
+      >← 放棄回首頁</button>
     </aside>
   );
 }

@@ -12,7 +12,8 @@ import SheetWindow from '../components/SheetWindow.jsx';
 export default function NetworkedBattle({ gameType, config, initialState, onEnd, onRematch, onExit, onHome }) {
   // 桌遊（gomoku/minesweeper/solitaire）改用「結束跳窗」流程（onRematch/onExit），
   // 停在戰鬥畫面播完化身動作再詢問；射擊類仍走原本的 GameOver 結算頁（onEnd）。
-  const endProps = { onRematch, onExit };
+  // 桌遊（gomoku/minesweeper/solitaire）額外吃 onRematch/onExit（結束跳窗）與 onHome（HUD 放棄按鈕）
+  const boardProps = { onRematch, onExit, onHome };
   if (gameType === 'battle-royale') {
     return <BattleRoyale initialState={initialState} config={config} onEnd={onEnd} />;
   }
@@ -22,24 +23,14 @@ export default function NetworkedBattle({ gameType, config, initialState, onEnd,
   if (gameType === 'territory') {
     return <TerritoryBattle initialState={initialState} config={config} onEnd={onEnd} />;
   }
-  // 桌遊：包一個「放棄回首頁」浮動按鈕（左下角，避開標題列/HUD/FPS 浮窗）
-  const boardGame = { gomoku: GomokuBattle, minesweeper: MinesweeperBattle, solitaire: SolitaireBattle }[gameType];
-  if (boardGame) {
-    const Game = boardGame;
-    return (
-      <>
-        <Game initialState={initialState} config={config} onEnd={onEnd} {...endProps} />
-        <button
-          onClick={onHome}
-          style={{
-            position: 'fixed', bottom: 10, left: 10, zIndex: 150,
-            padding: '6px 12px', cursor: 'pointer',
-            background: 'var(--bg-chrome)', color: 'var(--ink)',
-            border: '1px solid var(--line)', fontFamily: 'var(--font-mono)', fontSize: 11,
-          }}
-        >← 放棄回首頁</button>
-      </>
-    );
+  if (gameType === 'gomoku') {
+    return <GomokuBattle initialState={initialState} config={config} onEnd={onEnd} {...boardProps} />;
+  }
+  if (gameType === 'minesweeper') {
+    return <MinesweeperBattle initialState={initialState} config={config} onEnd={onEnd} {...boardProps} />;
+  }
+  if (gameType === 'solitaire') {
+    return <SolitaireBattle initialState={initialState} config={config} onEnd={onEnd} {...boardProps} />;
   }
   // 未實作的 gameType placeholder
   return (

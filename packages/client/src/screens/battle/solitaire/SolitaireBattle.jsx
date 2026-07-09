@@ -14,7 +14,7 @@ import { useInputSolitaire } from './useInputSolitaire.js';
 
 function foundTotal(b) { return (b?.foundations ?? []).reduce((n, f) => n + f.length, 0); }
 
-export default function SolitaireBattle({ initialState, config, onEnd, onRematch, onExit, readOnly = false }) {
+export default function SolitaireBattle({ initialState, config, onEnd, onRematch, onExit, onHome, readOnly = false }) {
   const socket = getSocket();
   const selfId = socket.id;
   const init = initialState?.state ?? {};
@@ -117,6 +117,7 @@ export default function SolitaireBattle({ initialState, config, onEnd, onRematch
           result={result}
           onAuto={handleAuto}
           onDraw={handleDraw}
+          onHome={onHome}
         />
 
         {/* 化身：右下（大）；推牌滑行時隱藏（改由滑行中的小貓推牌），推完再出現 */}
