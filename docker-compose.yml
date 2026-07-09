@@ -5,8 +5,10 @@ services:
       - POSTGRES_USER=colosseum
       - POSTGRES_PASSWORD=colosseum
       - POSTGRES_DB=colosseum
-    ports:
-      - "5432:5432"
+    # 不對主機暴露：容器間走 Docker 內網 postgres:5432。
+    # 若需從主機連 DB 工具再取消註解並改成不衝突的埠（例：57432:5432）。
+    # ports:
+    #   - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -17,8 +19,9 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    # 不對主機暴露：容器間走 Docker 內網 redis:6379。
+    # ports:
+    #   - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -38,8 +41,9 @@ services:
       - JWT_SECRET=${JWT_SECRET:-dev-only-secret-change-me-32chars-min}
       - ADMIN_INITIAL_USERNAME=${ADMIN_INITIAL_USERNAME:-admin}
       - ADMIN_INITIAL_PASSWORD=${ADMIN_INITIAL_PASSWORD:-admin}
-    ports:
-      - "3000:3000"
+    # 不對主機暴露：client 的 Vite 以內網 server:3000 代理 /socket.io。
+    # ports:
+    #   - "3000:3000"
     volumes:
       - .:/app
       - /app/node_modules
@@ -61,7 +65,7 @@ services:
     environment:
       - VITE_PROXY_TARGET=http://server:3000
     ports:
-      - "5173:5173"
+      - "16666:5173"
     volumes:
       - .:/app
       - /app/node_modules
